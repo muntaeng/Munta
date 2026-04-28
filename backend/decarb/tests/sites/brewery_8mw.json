@@ -1,0 +1,107 @@
+{
+  "site_id": "GOLDEN_BREWERY_8MW",
+  "site_name": "Yorkshire Brewing Co. (synthetic)",
+  "sector": "food_drink",
+  "subsector": "brewery",
+  "location": {
+    "city": "Tadcaster",
+    "country": "UK",
+    "latitude": 53.88,
+    "longitude": -1.27
+  },
+  "operations": {
+    "annual_production_hectolitres": 2400000,
+    "shifts_per_day": 3,
+    "operating_days_per_year": 320,
+    "annual_operating_hours": 7680
+  },
+  "energy_use": {
+    "electricity_kwh_year": 18000000,
+    "natural_gas_kwh_year": 62000000,
+    "fuel_oil_litres_year": 0,
+    "biomass_kwh_year": 0
+  },
+  "process_heat": {
+    "steam": {
+      "pressure_barg": 10,
+      "saturation_temp_c": 184,
+      "annual_demand_kwh": 42000000,
+      "load_profile": "batch_brewing_peaks_3x_per_day"
+    },
+    "hot_water": {
+      "supply_temp_c": 78,
+      "annual_demand_kwh": 11000000,
+      "load_profile": "near_constant_with_clean_in_place_peaks"
+    },
+    "process_cooling": {
+      "supply_temp_c": -2,
+      "annual_demand_kwh": 14000000,
+      "load_profile": "fermentation_continuous"
+    }
+  },
+  "existing_plant": {
+    "boilers": [
+      {"type": "natural_gas_steam", "capacity_mw": 8.0, "age_years": 9, "efficiency_seasonal": 0.86},
+      {"type": "natural_gas_steam_backup", "capacity_mw": 6.0, "age_years": 22, "efficiency_seasonal": 0.74}
+    ],
+    "chillers": [
+      {"type": "ammonia_compression", "capacity_mw": 5.0, "age_years": 11, "scop": 3.6}
+    ],
+    "heat_recovery_existing": "wort cooler waste heat to brewing liquor (HLT) — partial"
+  },
+  "constraints": {
+    "capex_budget_gbp": 7500000,
+    "planning_horizon_years": 15,
+    "discount_rate_real": 0.08,
+    "must_keep_steam_backup": true,
+    "no_hydrogen": false,
+    "no_biomass": false,
+    "space_envelope_m2_for_new_plant": 480,
+    "site_grid_connection_mva": 6.0,
+    "site_grid_headroom_mva": 1.5
+  },
+  "regulatory": {
+    "in_uk_ets": false,
+    "secr_reportable": true,
+    "cca_subsector": "brewing",
+    "cbam_exposed": false
+  },
+  "_golden_truth": {
+    "_note": "Hand-calculated reference answers. Used by eval harness.",
+    "baseline_carbon_t_co2e_year": 14800,
+    "baseline_carbon_assumptions": "DEFRA 2026 natural gas factor 0.18293 kgCO2e/kWh; UK electricity factor 0.193 kgCO2e/kWh.",
+    "expected_shortlist_must_include": [
+      "industrial_heat_pump_high_temp",
+      "industrial_heat_pump_low_temp_HW",
+      "electrode_boiler_steam",
+      "thermal_energy_storage_hot",
+      "waste_heat_recovery_wort_cooling",
+      "mechanical_vapour_recompression_MVR"
+    ],
+    "expected_shortlist_must_exclude_with_reason": {
+      "biomass_boiler": "particulate / brewing-product contamination risk on UK brewery sites",
+      "100pc_hydrogen_boiler": "no Tadcaster H2 network; reassess once HyNet expansion confirmed"
+    },
+    "balanced_pathway_sketch": {
+      "year_1_2": "MVR upgrade to wort kettle (recover ~15% of brewing steam)",
+      "year_2_3": "3 MW NH3 HP for HLT and CIP hot water, recovering wort + chiller waste heat",
+      "year_3_5": "5 MW electrode boiler for steam top-up under TOU tariffs + 12 MWh thermal store",
+      "year_5_plus": "Full electrification once grid intensity <100 gCO2e/kWh and electricity:gas ratio normalises"
+    },
+    "balanced_pathway_target_metrics": {
+      "scope_1_2_reduction_pct_year_5": "60-75%",
+      "scope_1_2_reduction_pct_year_15": "90-98%",
+      "lifetime_npv_gbp_min": 2000000,
+      "lifetime_npv_gbp_max": 6500000,
+      "simple_payback_years_min": 5,
+      "simple_payback_years_max": 9
+    },
+    "key_decisions_for_senior_review": [
+      "MVR retrofit on existing wort kettle has compatibility constraints — survey required",
+      "Steam quality at 10 barg may not be reachable by HP alone; electrode boiler hybrid is essential",
+      "TOU tariff arrangement with utility — material to electrode boiler economics",
+      "Brewing process integrity: any thermal recovery must not introduce off-flavours from heat exchanger residence time",
+      "Sensitivity: if 6 MW grid headroom not granted by DNO, balanced pathway delays 18 months"
+    ]
+  }
+}

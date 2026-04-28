@@ -1,0 +1,30 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+sqlalchemy>=2.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
+bcrypt>=4.0.0,<5.0.0
+pytest>=8.0.0
+httpx>=0.27.0
+slowapi>=0.1.9
+psycopg2-binary>=2.9.0
+pdfplumber>=0.11.0
+python-multipart>=0.0.7
+
+# Decarb agent stack
+anthropic>=0.42.0
+openai>=1.50.0          # for embeddings only
+pgvector>=0.3.0
+CoolProp>=6.6.0          # refrigerant + fluid properties
+ortools>=9.10.0          # MILP for investment optimisation
+scipy>=1.13.0            # numerical methods, Sobol sensitivity
+SALib>=1.5.0             # sensitivity analysis
+pymupdf4llm>=0.0.17      # PDF -> markdown for corpus ingestion
+weasyprint>=63.0         # markdown -> PDF for report rendering
+markdown-it-py>=3.0.0    # markdown rendering
+python-dotenv>=1.0.0
+tiktoken>=0.8.0          # for chunk size calculation

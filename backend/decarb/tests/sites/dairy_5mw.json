@@ -1,0 +1,106 @@
+{
+  "site_id": "GOLDEN_DAIRY_5MW",
+  "site_name": "Cumbria Dairy Co. (synthetic)",
+  "sector": "food_drink",
+  "subsector": "dairy_processing",
+  "location": {
+    "city": "Carlisle",
+    "country": "UK",
+    "latitude": 54.89,
+    "longitude": -2.94
+  },
+  "operations": {
+    "annual_production_tonnes_milk_processed": 180000,
+    "shifts_per_day": 2,
+    "operating_days_per_year": 340,
+    "annual_operating_hours": 5440
+  },
+  "energy_use": {
+    "electricity_kwh_year": 12500000,
+    "natural_gas_kwh_year": 38000000,
+    "fuel_oil_litres_year": 0,
+    "biomass_kwh_year": 0
+  },
+  "process_heat": {
+    "steam": {
+      "pressure_barg": 8,
+      "saturation_temp_c": 175,
+      "annual_demand_kwh": 28000000,
+      "load_profile": "two_shift_weekday_continuous"
+    },
+    "hot_water": {
+      "supply_temp_c": 85,
+      "annual_demand_kwh": 7000000,
+      "load_profile": "cleaning_in_place_pulses"
+    },
+    "process_cooling": {
+      "supply_temp_c": 2,
+      "annual_demand_kwh": 5500000,
+      "load_profile": "fairly_constant"
+    }
+  },
+  "existing_plant": {
+    "boilers": [
+      {"type": "natural_gas_steam", "capacity_mw": 6.0, "age_years": 12, "efficiency_seasonal": 0.85},
+      {"type": "natural_gas_steam_backup", "capacity_mw": 4.0, "age_years": 18, "efficiency_seasonal": 0.78}
+    ],
+    "chillers": [
+      {"type": "ammonia_compression", "capacity_mw": 2.5, "age_years": 7, "scop": 4.0}
+    ],
+    "heat_recovery_existing": "minimal — flue gas economiser only"
+  },
+  "constraints": {
+    "capex_budget_gbp": 4500000,
+    "planning_horizon_years": 15,
+    "discount_rate_real": 0.08,
+    "must_keep_steam_backup": true,
+    "no_hydrogen": false,
+    "no_biomass": false,
+    "space_envelope_m2_for_new_plant": 350,
+    "site_grid_connection_mva": 4.5,
+    "site_grid_headroom_mva": 1.0
+  },
+  "regulatory": {
+    "in_uk_ets": false,
+    "secr_reportable": true,
+    "cca_subsector": "dairy_processing",
+    "cbam_exposed": false
+  },
+  "_golden_truth": {
+    "_note": "Hand-calculated reference answers. Used by eval harness to score agent output. Not shown to the agent.",
+    "baseline_carbon_t_co2e_year": 7820,
+    "baseline_carbon_assumptions": "DEFRA 2026 natural gas factor 0.18293 kgCO2e/kWh; UK electricity factor 0.193 kgCO2e/kWh (2026 forecast); excludes upstream Scope 3.",
+    "expected_shortlist_must_include": [
+      "industrial_heat_pump_mid_temp",
+      "industrial_heat_pump_high_temp",
+      "electrode_boiler_steam",
+      "waste_heat_recovery_chiller_to_HW",
+      "thermal_energy_storage"
+    ],
+    "expected_shortlist_must_exclude_with_reason": {
+      "biomass_boiler": "dairy GMP / contamination risk; rarely deployable in close proximity to milk processing",
+      "100pc_hydrogen_boiler": "no hydrogen network in Carlisle, no on-site electrolyser viable at this scale today"
+    },
+    "balanced_pathway_sketch": {
+      "year_1": "Install 2 MW NH3 high-temp HP for hot water + waste heat recovery from existing chillers",
+      "year_2_3": "Install 4 MW electrode boiler hybrid for steam (peak shaving + grid-aware dispatch)",
+      "year_3_4": "Add 8 MWh thermal storage to enable off-peak electrification",
+      "year_5_plus": "Reassess as grid intensity reduces and ETS extends to non-traded sector"
+    },
+    "balanced_pathway_target_metrics": {
+      "scope_1_2_reduction_pct_year_5": "55-70%",
+      "scope_1_2_reduction_pct_year_15": "85-95%",
+      "lifetime_npv_gbp_min": 1200000,
+      "lifetime_npv_gbp_max": 3500000,
+      "simple_payback_years_min": 6,
+      "simple_payback_years_max": 11
+    },
+    "key_decisions_for_senior_review": [
+      "Confirm 350m² space envelope is genuinely available (typical dairy sites underestimate by 30%)",
+      "Confirm site grid headroom — DNO discussion required for >1.5MW of HP+electrode boiler load",
+      "Validate the assumption that existing NH3 chillers can be cascade-coupled to new HP without fouling risk on the dairy side",
+      "Confirm IETF eligibility for grant — sub-sector classification matters",
+      "Sensitivity: if electricity price exceeds 22 p/kWh forward 5y, balanced pathway IRR drops below 8% threshold"
+    ]
+  }
+}

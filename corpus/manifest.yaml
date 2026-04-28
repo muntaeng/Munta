@@ -1,0 +1,1980 @@
+# Reference corpus manifest — Week 1 spike
+#
+# Schema per entry:
+#   id:          stable short identifier, format <section>-<seq> (e.g. 01-defra-2025-factors)
+#   category:    1..9 matching corpus/raw/<NN>_<name>/
+#   title:       human-readable document title
+#   publisher:   issuing body
+#   url:         canonical download URL (PDF preferred)
+#   landing:     (optional) HTML landing page if the URL is a direct asset link
+#   licence:     ogl-v3 | crown-copyright | manufacturer-public | open-access | paid | unknown
+#   status:      todo | downloaded | free-alt | paid | blocked
+#   local_path:  expected file location once downloaded (relative to corpus/raw/)
+#   notes:       any caveats, version info, why-this-doc justification
+#
+# Status legend:
+#   todo        URL verified, file not yet pulled into raw/
+#   downloaded  file is present on disk
+#   free-alt    using a free alternative because original is paywalled — see notes
+#   paid        original is paid; manifest holds purchase URL — buy and drop in later
+#   blocked     URL identified but source blocks automated fetch — manual download
+#
+# DEFRA 2026 note: as of 2026-04-28, DEFRA 2026 GHG factors not yet published
+# (annual June release pattern). Using DEFRA 2025 as best-current. Swap when 2026 drops.
+
+documents:
+
+# =========================================================================
+# Section 1 — Emission factors and grid intensity (target: 5)
+# =========================================================================
+
+- id: 01-defra-2025-factors-full
+  category: 01_emission_factors
+  title: "DEFRA 2025 Government GHG Conversion Factors for Company Reporting (full
+    set, condensed + flat-file workbooks)"
+  publisher: DESNZ / DEFRA
+  url: 
+    https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2025
+  licence: ogl-v3
+  status: downloaded
+  local_path: 01_emission_factors/defra-2025-ghg-conversion-factors.xlsx
+  notes: >
+    Single most-referenced source in the corpus. Every Scope 1 and Scope 2 number
+    cites this. Landing page links the condensed-set XLSX, flat-file XLSX, and
+    summary PDFs. Pull all three. DEFRA 2026 not yet published (expected June 2026).
+
+  fetched_at: '2026-04-28T12:20:58.961002+00:00'
+  bytes: 1837959
+  sha256: 666f5a0001cf7205f882c1c3f8baa940d2f315928171794a2f6440e850560fbb
+- id: 01-defra-2025-methodology
+  category: 01_emission_factors
+  title: "2025 Government GHG Conversion Factors — Methodology Paper"
+  publisher: DESNZ / DEFRA
+  url: 
+    https://assets.publishing.service.gov.uk/media/6846b0870392ed9b784c0187/2025-GHG-CF-methodology-paper.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 01_emission_factors/defra-2025-ghg-methodology-paper.pdf
+  notes: >
+    Explanatory companion to the factors. Documents how each factor is derived,
+    essential for tracing provenance in agent outputs.
+
+  fetched_at: '2026-04-28T12:21:00.133581+00:00'
+  bytes: 1853848
+  sha256: 62774f77c18ba93f6464b8777f44ad74989de43b1f49e087380a38101bd880b1
+- id: 01-neso-fes-2025-main
+  category: 01_emission_factors
+  title: "Future Energy Scenarios 2025 — Pathways to Net Zero (main report)"
+  publisher: National Energy System Operator (NESO)
+  url: https://www.neso.energy/document/364541/download
+  landing: https://www.neso.energy/publications/future-energy-scenarios-fes
+  licence: open-access
+  status: downloaded
+  local_path: 01_emission_factors/neso-fes-2025-main.pdf
+  notes: >
+    Three pathways: Holistic Transition, Electric Engagement, Hydrogen Evolution.
+    Provides grid intensity forecasts to 2050. Companion data workbook + assumptions
+    workbook should also be pulled (see 01-neso-fes-2025-data and 01-neso-fes-2025-assumptions).
+
+  fetched_at: '2026-04-28T12:21:01.727892+00:00'
+  bytes: 7277717
+  sha256: 184c745d74cbf406f3adf5c4b1d73796cfa61d48453414fb30ba4ce3a7172a34
+- id: 01-neso-fes-2025-data
+  category: 01_emission_factors
+  title: "FES 2025 — Data Workbook"
+  publisher: NESO
+  url: 
+    https://www.neso.energy/publications/future-energy-scenarios-fes/fes-documents
+  licence: open-access
+  status: blocked
+  local_path: 01_emission_factors/neso-fes-2025-data-workbook.xlsx
+  notes: >-
+    Expected XLSX but got HTML, no XLSX link found
+
+- id: 01-desnz-industrial-decarb-strategy-2021
+  category: 01_emission_factors
+  title: "Industrial Decarbonisation Strategy (March 2021, CP 399)"
+  publisher: BEIS (now DESNZ)
+  url: 
+    https://assets.publishing.service.gov.uk/government/uploads/system/uploads/attachment_data/file/970229/Industrial_Decarbonisation_Strategy_March_2021.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    01_emission_factors/desnz-industrial-decarbonisation-strategy-2021.pdf
+  notes: >
+    First major-economy industrial decarb strategy. Sector roadmaps + cluster
+    programme. Look for 2024-2026 updates separately.
+
+  fetched_at: '2026-04-28T12:21:04.883474+00:00'
+  bytes: 7772441
+  sha256: ef1d02ab5eb6c41a82d13eac831ee97bde79fabf66457b8087a22e8a84fb8a9b
+- id: 01-esc-innovating-to-net-zero
+  category: 01_emission_factors
+  title: "Innovating to Net Zero (Energy Systems Catapult, ESME pathways)"
+  publisher: Energy Systems Catapult
+  url: 
+    https://www.drax.com/wp-content/uploads/2020/03/ESC_Innovating_to_Net_Zero_report_FINAL.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 01_emission_factors/esc-innovating-to-net-zero.pdf
+  notes: >
+    ESC ESME model outputs — 3,600 net-zero pathway runs. Useful as cross-check
+    against NESO FES.
+
+# =========================================================================
+# Section 2 — UK regulatory framework (target: 8)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:21:06.408884+00:00'
+  bytes: 4986843
+  sha256: d271ffaafd45772749058e6c53220f72f526c3c63598ffeeab3402c8f0a5c50d
+- id: 02-uk-ets-markets-guidance
+  category: 02_uk_regulatory
+  title: "UK Emissions Trading Scheme markets — guidance and price/auction info"
+  publisher: DESNZ / UK ETS Authority
+  url: 
+    https://www.gov.uk/government/publications/uk-emissions-trading-scheme-markets/uk-emissions-trading-scheme-markets
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/uk-ets-markets-guidance.html
+  notes: >
+    HTML guidance — pull as markdown. Contains current Auction Reserve Price (£28),
+    auction calendar, supply caps. ICE auction calendar separate. Cross-reference
+    ICAP UK ETS data (icapcarbonaction.com) for time-series prices.
+
+  fetched_at: '2026-04-28T12:21:07.539639+00:00'
+  bytes: 136593
+  sha256: 946dbc1495acaa3efd48e8b3e4609601f95e344d0c66653f787eae0909f32504
+- id: 02-uk-ets-nao-2025-review
+  category: 02_uk_regulatory
+  title: "UK Emissions Trading Scheme — National Audit Office review (June 2025)"
+  publisher: National Audit Office
+  url: 
+    https://www.nao.org.uk/wp-content/uploads/2025/06/uk-emissions-trading-scheme.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/nao-uk-ets-2025.pdf
+  notes: >
+    Independent review of UK ETS performance. Useful balance to government framing.
+
+  fetched_at: '2026-04-28T12:21:08.688606+00:00'
+  bytes: 670308
+  sha256: 058d4f1bbe24535e45c9d379962dc11d001dcf21fd5de46648e3fd0f5b97f638
+- id: 02-uk-cbam-policy-summary
+  category: 02_uk_regulatory
+  title: "UK Carbon Border Adjustment Mechanism — Policy Summary"
+  publisher: HM Treasury / HMRC
+  url: 
+    https://www.gov.uk/government/publications/carbon-border-adjustment-mechanism-cbam-policy-summary/carbon-border-adjustment-mechanism-cbam-policy-summary
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/uk-cbam-policy-summary.html
+  notes: >
+    Policy summary + factsheet. UK CBAM commences 1 Jan 2027. Sectors: aluminium,
+    cement, fertiliser, hydrogen, iron & steel. Embedded emissions methodology
+    relevant to industrial exporters. Pull both this and the draft regulations
+    (separate entry below) since methodology is in draft regs.
+
+  fetched_at: '2026-04-28T12:21:09.823266+00:00'
+  bytes: 295044
+  sha256: 838100da9db274e50b9fd118b3e9f9b88ec186f866568905ddfb41e7cf76ce95
+- id: 02-uk-cbam-draft-regulations
+  category: 02_uk_regulatory
+  title: "UK CBAM — Draft Regulations (Apr 2026 consultation set: emissions monitoring
+    + administration)"
+  publisher: HMRC
+  url: 
+    https://www.gov.uk/government/consultations/draft-regulations-carbon-border-adjustment-mechanism-cbam
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/uk-cbam-draft-regulations-apr-2026.html
+  notes: >
+    Consultation closes 21 May 2026. Contains the calculation rules for embedded
+    emissions, record-keeping, supplier carbon-content documentation. Implementation
+    starts 1 Jan 2027 with quarterly rate publication.
+
+  fetched_at: '2026-04-28T12:21:10.907824+00:00'
+  bytes: 91514
+  sha256: 638eb6d5700cb48438c1f74b865286f5f5d8d4763ff89661e91492f2736ae0ad
+- id: 02-secr-environmental-reporting-guidelines
+  category: 02_uk_regulatory
+  title: "Environmental Reporting Guidelines: including SECR (Mar 2019, latest update)"
+  publisher: DESNZ / DEFRA
+  url: 
+    https://assets.publishing.service.gov.uk/media/67161e8696def6d27a4c9ab3/environmental-reporting-guidance-secr-march-2019.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/secr-environmental-reporting-guidelines-2019.pdf
+  notes: >
+    Chapter 2 = SECR specifics. Defines who must report (large UK companies, LLPs,
+    quoted companies), what (energy use, GHG, intensity metric, action narrative),
+    where (annual report). Effective 1 Apr 2019.
+
+  fetched_at: '2026-04-28T12:21:12.089449+00:00'
+  bytes: 1538540
+  sha256: 3ea42e20da70551094edd42a3cbde2188f3c25b38d33be184b6c4643d667c66f
+- id: 02-secr-evaluation-2026
+  category: 02_uk_regulatory
+  title: "Streamlined Energy and Carbon Reporting (SECR) — Evaluation Report (Jan
+    2026)"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/6977465fd345446f8ce71ef2/secr-evaluation-report.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/secr-evaluation-2026.pdf
+  notes: >
+    Recent gov evaluation of SECR — includes uptake, data quality, and likely
+    direction of travel for the regime.
+
+  fetched_at: '2026-04-28T12:21:13.245718+00:00'
+  bytes: 941687
+  sha256: 8c9b747c3f613bfa31af342a59fa143feef292820a63b873c32d9f994787434c
+- id: 02-cca-statutory-guidance-2026
+  category: 02_uk_regulatory
+  title: "Climate Change Agreements — Statutory Guidance (2026)"
+  publisher: DESNZ / Environment Agency
+  url: 
+    https://www.gov.uk/government/publications/climate-change-agreements-statutory-guidance/climate-change-agreements-statutory-guidance-2026-accessible-webpage
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/cca-statutory-guidance-2026.html
+  notes: >
+    CCAs cover 51 sectors (food & drink relevant). Voluntary energy-efficiency
+    targets in exchange for CCL discount. Sector-specific commitments are appended
+    to umbrella agreements — pull the food & drink ones if individually downloadable.
+
+  fetched_at: '2026-04-28T12:21:14.335295+00:00'
+  bytes: 120765
+  sha256: 6c78fae27396a00d682e9262714fd4c1750a5617e22bba0751b59253dc62663c
+- id: 02-cca-operations-manual-2022
+  category: 02_uk_regulatory
+  title: "Climate Change Agreements — Operations Manual (Feb 2022, LIT7911)"
+  publisher: Environment Agency
+  url: 
+    https://assets.publishing.service.gov.uk/media/6216220cd3bf7f4f0399d084/Climate-Change-Agreements-Operations-Manual.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/cca-operations-manual-2022.pdf
+  notes: >
+    How CCAs are administered. Useful for understanding the data the agent might
+    need to produce for a CCA-eligible client.
+
+  fetched_at: '2026-04-28T12:21:15.524656+00:00'
+  bytes: 1651185
+  sha256: ffb5784888e26bd007c9af75065b86dbb06109e1866759a03f49251a242f740e
+- id: 02-mees-non-domestic-landlord-guidance
+  category: 02_uk_regulatory
+  title: "Non-domestic Private Rented Property: Minimum Energy Efficiency Standard
+    — Landlord Guidance"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/guidance/non-domestic-private-rented-property-minimum-energy-efficiency-standard-landlord-guidance
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/mees-non-domestic-landlord-guidance.html
+  notes: >
+    Current MEES floor: EPC E. Government has consulted on raising to EPC B by
+    2030. Relevant for any owned manufacturing facilities the agent assesses.
+
+  fetched_at: '2026-04-28T12:21:16.727172+00:00'
+  bytes: 128306
+  sha256: c1b3eeb642d272062cfcc840fd8aedf1e59e7479872ca3cf17843666e1090ad1
+- id: 02-fgas-defra-hfc-phasedown-consultation
+  category: 02_uk_regulatory
+  title: "F-Gas Regulation in Great Britain — Reform of HFC Phasedown (DEFRA consultation)"
+  publisher: DEFRA
+  url: 
+    https://consult.defra.gov.uk/fluorinated-gases-and-ozone-depleting-substances-policy-team/f-gas-regulation-in-great-britain/supporting_documents/hfc-phasedown-reform-consultation-documentpdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/fgas-uk-hfc-phasedown-consultation.pdf
+  notes: >
+    UK currently follows retained EU 517/2014. 2024 phasedown step took HFCs to
+    31% of 2015-19 baseline (69% reduction). Constrains refrigerant choice for
+    industrial heat pumps — informs which fluids the engine should consider.
+
+  fetched_at: '2026-04-28T12:21:18.112029+00:00'
+  bytes: 307769
+  sha256: 136665f6779c1fc1b54b806a7a85f04583ba859bf9d1a358fc3a351040e66f51
+- id: 02-fgas-eu-517-2014-uk-retained
+  category: 02_uk_regulatory
+  title: "EU Regulation 517/2014 on fluorinated greenhouse gases (UK retained version)"
+  publisher: legislation.gov.uk
+  url: https://www.legislation.gov.uk/eur/2014/517
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/fgas-eu-517-2014-uk-retained.html
+  notes: >
+    The actual legal text the UK has retained. Contains the phasedown schedule
+    and equipment-specific bans (Annex III).
+
+  fetched_at: '2026-04-28T12:21:19.914120+00:00'
+  bytes: 552176
+  sha256: dd4cc564447196ee67c2dd6387bd0443999ff0179f0aab72529a6e36881adcd0
+- id: 02-ietf-phase-3-spring-2024-guidance
+  category: 02_uk_regulatory
+  title: "Industrial Energy Transformation Fund — Phase 3 Spring 2024 Guidance"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/65aa946375154600107b4a54/ietf-phase-3-spring-2024-guidance.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/ietf-phase-3-spring-2024-guidance.pdf
+  notes: >
+    £185m across 2024-28. Funds feasibility/engineering studies and deployment
+    grants. Eligibility for England, Wales, NI sites. Critical because client
+    decarb plans often anchor on IETF grant assumptions.
+
+  fetched_at: '2026-04-28T12:21:21.249931+00:00'
+  bytes: 1020683
+  sha256: b26606049e612075f0b42778f6b572c2c12c20a41551c3ff3fb0fa60c045b5af
+- id: 02-ietf-collection-page
+  category: 02_uk_regulatory
+  title: "IETF — full publication collection (all phases, all windows)"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/collections/industrial-energy-transformation-fund
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/ietf-collection-index.html
+  notes: >
+    Index page — Claude Code should scrape all linked guidance + Q&A docs.
+
+  fetched_at: '2026-04-28T12:21:22.400957+00:00'
+  bytes: 100177
+  sha256: 48b5006c3136f61d6640d2408d7ac412233203270f899bcca94e8a093b7fcd2b
+- id: 02-hpbm-publication-hub
+  category: 02_uk_regulatory
+  title: "Hydrogen Production Business Model — publication hub"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/publications/hydrogen-production-business-model
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/hpbm-publication-hub.html
+  notes: >
+    Index of HPBM documents — Heads of Terms, Standard Terms & Conditions, Front
+    End Agreement, government responses. Pull these as separate files where
+    individually linked.
+
+  fetched_at: '2026-04-28T12:21:26.330107+00:00'
+  bytes: 108000
+  sha256: 23393848aeb13656a0823dd936c2498cefeb56ae0655a56bc2c2a8c04be50c73
+- id: 02-hpbm-government-response-2023
+  category: 02_uk_regulatory
+  title: "Hydrogen Production and Industrial Carbon Capture Business Models — Government
+    Response (Oct 2023)"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/654103cc46532b000d67f630/hydrogen-production-icc-business-models-government-response.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/hpbm-icc-government-response-2023.pdf
+  notes: >
+    Joint response covering both HPBM and Industrial Carbon Capture (ICC) models.
+    Defines pricing mechanism (variable strike), eligibility, allocation rounds.
+
+# =========================================================================
+# Section 3 — Engineering standards (target: 12, free alternatives where possible)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:21:27.699191+00:00'
+  bytes: 1027191
+  sha256: 713ee800d1e57738e924279efe74ce393838c5663b7edbf1e2a97460161a7e65
+- id: 03-cibse-am17-large-heat-pumps
+  category: 03_engineering_standards
+  title: "CIBSE AM17 — Heat pump installations for large non-domestic buildings (2022,
+    with 2024 corrigendum)"
+  publisher: CIBSE / BEIS (DESNZ)
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/am17-heat-pump-installations-for-large-non-domestic-buildings/
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/cibse-am17-2022.pdf
+  notes: >-
+    Validation failed after retry: Bad magic bytes: b'\n\n<!D'
+
+- id: 03-cibse-am15-biomass
+  category: 03_engineering_standards
+  title: "CIBSE AM15 — Biomass Heating (2014)"
+  publisher: CIBSE
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/applications-manual-15-biomass-heating-2014-pdf/
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/cibse-am15-biomass-2014.pdf
+  notes: >-
+    Expected PDF but got HTML: Got HTML but expected PDF; no PDF link found
+
+- id: 03-cibse-am12-chp
+  category: 03_engineering_standards
+  title: "CIBSE AM12 — Combined Heat and Power for Buildings"
+  publisher: CIBSE
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/applications-manual-12-combined-heat-and-power-for-buildings/
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/cibse-am12-chp.pdf
+  notes: >-
+    Expected PDF but got HTML: Got HTML but expected PDF; no PDF link found
+
+- id: 03-cibse-guide-a-environmental-design
+  category: 03_engineering_standards
+  title: "CIBSE Guide A — Environmental Design (2015, updated 2021)"
+  publisher: CIBSE
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/guide-a-environmental-design-2015-updated-2021-pdf/
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/cibse-guide-a-2015-2021.pdf
+  notes: >-
+    Expected PDF but got HTML: Followed link but failed: HTTP 404: 404 Client Error:
+    Not Found for url: https://www.eurovent.eu/sites/default/files/field/file/Eurovent%20REC%204-23%20-%20Selection%20of%20EN%20ISO%2016890%20rated%20air%20filter%20classes%20-%202017.pdf
+
+- id: 03-cibse-guide-f-companion
+  category: 03_engineering_standards
+  title: "Introduction to Energy Efficiency: a Companion to CIBSE Guide F (2012)"
+  publisher: CIBSE
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/introduction-to-energy-efficiency-a-companion-to-guide-f-2012-pdf/
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/cibse-guide-f-companion-2012.pdf
+  notes: >-
+    Expected PDF but got HTML: Got HTML but expected PDF; no PDF link found
+
+- id: 03-ghg-protocol-corporate
+  category: 03_engineering_standards
+  title: "GHG Protocol — A Corporate Accounting and Reporting Standard (Revised Edition)"
+  publisher: WRI / WBCSD
+  url: 
+    https://ghgprotocol.org/sites/default/files/standards/ghg-protocol-revised.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 
+    03_engineering_standards/ghg-protocol-corporate-standard-revised.pdf
+  notes: >
+    FREE. Defines Scope 1/2/3, organisational and operational boundaries,
+    reconsolidation rules. Foundation for SECR and ISO 14064. Pull the Scope 3
+    and the GHG Protocol Project Standard separately.
+
+  fetched_at: '2026-04-28T12:21:39.100212+00:00'
+  bytes: 3680902
+  sha256: cfcda4dd20a0b0936b30e5e5c7c635c26efdfa770d29c1004f549bf082c0fe3c
+- id: 03-ghg-protocol-scope3
+  category: 03_engineering_standards
+  title: "GHG Protocol — Corporate Value Chain (Scope 3) Standard"
+  publisher: WRI / WBCSD
+  url: https://ghgprotocol.org/corporate-value-chain-scope-3-standard
+  licence: open-access
+  status: downloaded
+  local_path: 03_engineering_standards/ghg-protocol-scope-3-standard.pdf
+  notes: >
+    FREE. Scope 3 categories 1–15. Will be cited any time the agent talks
+    about supply-chain emissions or value-chain reductions.
+
+  fetched_at: '2026-04-28T12:21:40.445604+00:00'
+  bytes: 6177981
+  sha256: c748e35216aedd90fff3dc580b233f37cbaf9e6cefd211c88e92965bded54b91
+- id: 03-doe-iso-50001-eguide-and-readiness
+  category: 03_engineering_standards
+  title: "ISO 50001 — DOE eGuide and 50001 Ready Navigator (free implementation toolkit)"
+  publisher: US DOE Better Plants / Better Buildings
+  url: 
+    https://betterbuildingssolutioncenter.energy.gov/iso-50001/getting-started-iso-50001
+  licence: open-access
+  status: blocked
+  local_path: 03_engineering_standards/doe-50001-ready-navigator.html
+  notes: >-
+    Connection error: HTTPSConnectionPool(host='betterbuildingssolutioncenter.energy.gov',
+    port=443): Max retries exceeded
+    with url: /iso-50001/getting-started-iso-50001 (Caused by ConnectTimeoutError(<HTTPSConnection(host='betterbuildingssolutioncenter.energy.gov',
+    port=443) at 0x10842bd60>, 'Connection to betterbuildingssolutioncenter.energy.gov
+    timed out. (connect timeout=30)'))
+
+- id: 03-nrel-iso50001-lessons
+  category: 03_engineering_standards
+  title: "NREL — Lessons Learned in the Pursuit of ISO 50001 (TP-7A40-73586)"
+  publisher: NREL
+  url: https://docs.nrel.gov/docs/fy20osti/73586.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 03_engineering_standards/nrel-iso50001-lessons-learned.pdf
+  notes: >
+    Direct PDF. Implementation experience report — useful for grounding agent
+    claims about EnMS deployment timelines.
+
+  fetched_at: '2026-04-28T12:22:47.714173+00:00'
+  bytes: 1003334
+  sha256: 2a967598a42bb94232bd773a138134ed8317753f000c119f2fe0a4c0a3531bcf
+- id: 03-bsi-iso14068-brochure
+  category: 03_engineering_standards
+  title: "ISO 14068-1 Carbon Neutrality — BSI implementation brochure"
+  publisher: BSI
+  url: 
+    https://www.bsigroup.com/siteassets/pdf/en/insights-and-media/insights/brochures/gl-as-scert-lg-nss-sus-iso14068-mp-carbonneutrality-0524-report-1.pdf
+  licence: free-alt
+  status: downloaded
+  local_path: 03_engineering_standards/bsi-iso14068-brochure.pdf
+  notes: >
+    FREE substitute for paid PAS 2060 / ISO 14068-1. ISO 14068-1:2023 has
+    replaced PAS 2060 from 1 Jan 2025. BSI's own brochure plus NQA's PAS 2060
+    implementation guide (https://www.nqa.com/getmedia/b4c2bb85-f725-4ed3-9045-be61aac4428f/NQA-PAS-2060-Implementation-Guide.pdf)
+    together cover the requirements adequately for RAG.
+
+  fetched_at: '2026-04-28T12:22:50.364613+00:00'
+  bytes: 13280901
+  sha256: 738e86437cf6bb6e70b01d643902b99abc649458229ab64afc5e2b36c82ea41d
+- id: 03-nqa-pas2060-implementation-guide
+  category: 03_engineering_standards
+  title: "NQA — PAS 2060 Implementation Guide (free)"
+  publisher: NQA
+  url: 
+    https://www.nqa.com/getmedia/b4c2bb85-f725-4ed3-9045-be61aac4428f/NQA-PAS-2060-Implementation-Guide.pdf
+  licence: free-alt
+  status: downloaded
+  local_path: 03_engineering_standards/nqa-pas2060-implementation-guide.pdf
+  notes: >
+    FREE substitute for the £100 BSI PAS 2060 standard. Walks through the four
+    stages (measure, reduce, offset, document) in usable detail. Note PAS 2060
+    is being retired — supplement with ISO 14068-1 brochure entry.
+
+  fetched_at: '2026-04-28T12:22:51.827283+00:00'
+  bytes: 5372602
+  sha256: fbeee5d30eef1f86964931fcb0f179d16a4634969ed2515513d8ad40585bd827
+- id: 03-ehpa-airwater-hp-testing
+  category: 03_engineering_standards
+  title: "EHPA Testing Regulation — Air/Water Heat Pumps (V2.4, 2021) — based on EN
+    14511 / EN 14825"
+  publisher: European Heat Pump Association
+  url: 
+    https://www.ehpa.org/wp-content/uploads/2022/07/EHPA_TestReg_AW_HP_V2.4a_20210607_.pdf
+  licence: free-alt
+  status: downloaded
+  local_path: 03_engineering_standards/ehpa-testreg-aw-hp-v2.4.pdf
+  notes: >
+    FREE substitute for paid BS EN 14511 / 14825. EHPA Quality Label test
+    protocol is built directly on EN 14511, EN 14825, EN 15879, EN 16147 —
+    cites the test conditions and tolerance bands the engine needs.
+
+  fetched_at: '2026-04-28T12:22:53.118197+00:00'
+  bytes: 425556
+  sha256: 8c297efc01a2321e50e8642a0cd417d9461dc97eecd1abf4d2b060351af31f1c
+- id: 03-ehpa-brinewater-hp-testing
+  category: 03_engineering_standards
+  title: "EHPA Testing Regulation — Brine/Water and Water/Water Heat Pumps (V2.2,
+    Feb 2021)"
+  publisher: European Heat Pump Association
+  url: 
+    https://www.ehpa.org/wp-content/uploads/2022/07/EHPA_TestReg_BWWW_HP_V2.2_February_02_2021.pdf
+  licence: free-alt
+  status: downloaded
+  local_path: 03_engineering_standards/ehpa-testreg-bw-ww-hp-v2.2.pdf
+  notes: >
+    FREE companion to AW protocol — covers GSHPs and water-source HPs.
+    Test conditions inform engine's COP-vs-source-temperature curves.
+
+  fetched_at: '2026-04-28T12:22:54.222684+00:00'
+  bytes: 291174
+  sha256: 1352457acd03cf59794cc5f4def73d19b3a64b023c05f3faaae8613d51325343
+- id: 03-jrc-eed-art8-energy-audits
+  category: 03_engineering_standards
+  title: "JRC — Practices for Energy Audit Information Management under EED Article
+    8 (JRC109382)"
+  publisher: European Commission Joint Research Centre
+  url: 
+    https://publications.jrc.ec.europa.eu/repository/bitstream/JRC109382/jrc109382_report_eas_finalpubsy.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 03_engineering_standards/jrc109382-eed-art8-energy-audits.pdf
+  notes: >
+    FREE substitute for paid BS EN 16247-1..5. Explains how member states
+    implement the EN 16247 audit standard — covers methodology, deliverables,
+    auditor competence. Adequate for RAG grounding of audit-procedure claims.
+
+  fetched_at: '2026-04-28T12:22:58.113800+00:00'
+  bytes: 2490388
+  sha256: 9c61c198773da4decc8cf25a9b10bb3fc4c7b4e4bccfa0139d7bcac0e49900e3
+- id: 03-cibse-tm54-2022
+  category: 03_engineering_standards
+  title: "CIBSE TM54 — Evaluating Operational Energy Use at the Design Stage (2022,
+    2nd ed)"
+  publisher: CIBSE
+  url: 
+    https://www.cibse.org/knowledge-research/knowledge-portal/tm54-evaluating-operational-energy-use-at-the-design-stage-2022
+  licence: paid
+  status: paid
+  local_path: 03_engineering_standards/cibse-tm54-2022.pdf
+  notes: >
+    PAID — ~£100 single-user licence from CIBSE Knowledge Portal. No clean free
+    substitute (the Julie Godefroy launch slide deck on cibse.org/media is a
+    summary not the full TM). Recommend buying — TM54 is the canonical
+    methodology for closing the design-vs-operational performance gap.
+    Manifest holds purchase URL; drop the licensed PDF in raw/ once acquired.
+
+# =========================================================================
+# Section 4 — Heat pump / electrification datasheets (target: 15)
+# =========================================================================
+
+- id: 04-man-etes-co2-hthp
+  category: 04_heat_pump_tech
+  title: "MAN ETES — CO2 high-temperature heat pump system"
+  publisher: MAN Energy Solutions
+  url: 
+    https://heatpumpingtechnologies.org/annex58/wp-content/uploads/sites/70/2022/07/man-es-etes-co2-hthp-system.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/man-es-etes-co2-hthp.pdf
+  notes: >
+    Trans-critical CO2 cycle. 10–50 MW thermal per unit, supply temps to 150°C.
+    IEA HPT Annex 58 hosts the datasheet. Cross-reference Esbjerg port project
+    presentation (NETL) for operational data.
+
+  fetched_at: '2026-04-28T12:22:59.646890+00:00'
+  bytes: 398556
+  sha256: f33aad8b3929676c5b7332112540d63477eb8d734068325e00b1ed8ad0e45506
+- id: 04-man-hpu-general
+  category: 04_heat_pump_tech
+  title: "MAN HPU — Industrial heat pump (general datasheet)"
+  publisher: MAN Energy Solutions
+  url: 
+    https://www.man-es.com/docs/default-source/document-sync-archive/man-heat-pump-hpu-eng.pdf?sfvrsn=e83c2883_6
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/man-hpu-general.pdf
+  notes: >
+    Outputs to 150°C, capacity to 50 MW. Wider product overview vs the
+    Annex 58 ETES paper.
+
+  fetched_at: '2026-04-28T12:23:01.303819+00:00'
+  bytes: 927525
+  sha256: d662b1938a44cfe268da8936d703b04bd9fcacbdf128f49e5b3a13eeefcafb04
+- id: 04-mayekawa-newton
+  category: 04_heat_pump_tech
+  title: "Mayekawa NewTon — ammonia heat pump (Unimo AW + WW datasheets)"
+  publisher: Mayekawa (MYCOM)
+  url: https://americas.mayekawa.com/mna/downloads/pdf/Heat%20Pumps/Unimo-AW.pdf
+  landing: https://mayekawa.com/lp/newton/index.html
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/mayekawa-unimo-aw.pdf
+  notes: >
+    Mayekawa's heat pump family. Pull both Unimo-AW (air-source) and
+    Unimo-WW (water-source) PDFs. Mayekawa Europe brochures page also has the
+    "New Standard Heat Pump" downloadable.
+
+  fetched_at: '2026-04-28T12:23:03.379051+00:00'
+  bytes: 309052
+  sha256: 47abe25e32dc1bebb5405726c550bb578ba2dc84dc93148d519554baa28adcd5
+- id: 04-friotherm-unitop-50
+  category: 04_heat_pump_tech
+  title: "Friotherm Unitop 50 FY — large district + industrial heat pump (case studies)"
+  publisher: Friotherm
+  url: 
+    https://www.friotherm.com/wp-content/uploads/2017/11/E11-15_Turku-Energia.pdf
+  landing: https://www.friotherm.com/products/unitop/unitop-50/
+  licence: manufacturer-public
+  status: blocked
+  local_path: 04_heat_pump_tech/friotherm-unitop-50-turku.pdf
+  notes: >-
+    Validation failed after retry: Only 1 page(s)
+
+- id: 04-sabroe-hicahp
+  category: 04_heat_pump_tech
+  title: "Sabroe HicaHP — high-capacity ammonia heat pump (4–25 MW)"
+  publisher: Johnson Controls / Sabroe
+  url: 
+    https://www.sabroe.com/-/media/project/jci-global/industrial-refrigeration/sabroe/united-states-sabroe/insights/brochure_hicahp_digital.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/sabroe-hicahp.pdf
+  notes: >
+    Six models, 4–25 MW. Companion lines HeatPAC (≤90°C, 500 kW–2.15 MW) and
+    HyePAC hybrid (≤120°C). Pull HeatPAC documentation from the JCI docs
+    portal as a separate entry.
+
+  fetched_at: '2026-04-28T12:23:09.089148+00:00'
+  bytes: 481463
+  sha256: 23e03f42d67ee4f7c2fcae7fc5e61ae686c2ac88c9897be48e5a8b25b3104bc6
+- id: 04-sabroe-heatpac
+  category: 04_heat_pump_tech
+  title: "Sabroe HeatPAC — ammonia heat pump (≤90°C process water)"
+  publisher: Johnson Controls / Sabroe
+  url: 
+    https://docs.johnsoncontrols.com/industrialrefrigeration/api/khub/documents/UzlmzjFOZVfQSj6vhckLcA/content
+  landing: 
+    https://www.sabroe.com/en/products/chillers-and-heat-pumps/heatpac-heat-pumps/
+  licence: manufacturer-public
+  status: blocked
+  local_path: 04_heat_pump_tech/sabroe-heatpac.pdf
+  notes: >-
+    Connection error: HTTPSConnectionPool(host='docs.johnsoncontrols.com', port=443):
+    Max retries exceeded with url: /industrialrefrigeration/api/khub/documents/UzlmzjFOZVfQSj6vhckLcA/content
+    (Caused by SSLError(SSLError(1, '[SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert
+    protocol version (_ssl.c:1129)')))
+
+- id: 04-gea-redastrum
+  category: 04_heat_pump_tech
+  title: "GEA RedAstrum — ammonia screw-compressor heat pump (750–2,900 kW)"
+  publisher: GEA Refrigeration Technologies
+  url: https://eurefa.dk/wp-content/uploads/GEA_RedAstrum_EN.pdf
+  landing: 
+    https://www.gea.com/en/products/heat-pumps/redastrum-ammonia-heatpump/
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/gea-redastrum.pdf
+  notes: >
+    Successor to Grasso M / LT series. 55–80°C standard supply. Companion
+    RedGenium product brochure linked separately on gea.com (GEA RedGenium
+    asset 249860).
+
+  fetched_at: '2026-04-28T12:23:14.316741+00:00'
+  bytes: 2081665
+  sha256: 078bf46706070661a6def7b1989e0014fda7d484f7cc9dc818e12c54db0c92ef
+- id: 04-hybrid-energy-as
+  category: 04_heat_pump_tech
+  title: "Hybrid Energy AS — Ammonia/water hybrid absorption-compression HP (Annex
+    58)"
+  publisher: Hybrid Energy AS
+  url: 
+    https://heatpumpingtechnologies.org/content/uploads/sites/70/2022/07/annex58-hybrid-energy-juli-2022-rev3.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/hybrid-energy-as-annex58.pdf
+  notes: >
+    NH3+H2O working pair. Sink temps 80–120°C, sources 30–70°C, lift up to 90 K.
+    Used by Tetra Pak / dairy applications.
+
+  fetched_at: '2026-04-28T12:23:15.732460+00:00'
+  bytes: 310696
+  sha256: 69d655c5a6270b995465167ee8bf1fe40ecf7312e978575e5a7d2e5c1e70ea71
+- id: 04-olvondo-highlift
+  category: 04_heat_pump_tech
+  title: "Olvondo HighLift — Stirling-cycle high-temperature heat pump (Annex 58)"
+  publisher: Olvondo Technology AS
+  url: 
+    https://heatpumpingtechnologies.org/annex58/wp-content/uploads/sites/70/2022/07/olvondo-highlift.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/olvondo-highlift.pdf
+  notes: >
+    Reversed Stirling cycle, helium working fluid. 750 kW heat per unit,
+    sink temperatures up to 200°C, lift to 100 K. Steam delivery directly
+    relevant to F&D processing.
+
+  fetched_at: '2026-04-28T12:23:16.969799+00:00'
+  bytes: 260272
+  sha256: 9a9844ba0c0347a6842c6f29e5fba22c22b5127fef81cd259bea4579b0621e09
+- id: 04-parat-ieh-electrode-boiler
+  category: 04_heat_pump_tech
+  title: "Parat IEH — High-voltage electrode boiler (steam, 6–85 barg, up to 60 MW)"
+  publisher: Parat Halvorsen AS
+  url: https://www.parat.no/media/eigabtot/parat-ieh-english-2021.pdf
+  licence: manufacturer-public
+  status: blocked
+  local_path: 04_heat_pump_tech/parat-ieh.pdf
+  notes: >-
+    HTTP 404: 404 Client Error: Not Found for url: https://parat.no/media/eigabtot/parat-ieh-english-2021.pdf
+
+- id: 04-vapor-power-electrode
+  category: 04_heat_pump_tech
+  title: "Vapor Power International — Electrode Boilers (Jet-Flo) brochure"
+  publisher: Vapor Power International
+  url: 
+    https://www.vaporpower.com/wp-content/uploads/2014/11/VPR_Electrode_Brochure.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/vapor-power-electrode.pdf
+  notes: >
+    US-built electrode boiler line. Used as a cross-check on Parat data
+    (different jurisdictional design rules — ASME vs PED).
+
+  fetched_at: '2026-04-28T12:23:22.150908+00:00'
+  bytes: 1256960
+  sha256: 40598fc92bae0f8823cb4a2e835cd08442caf8ca767c090ab692901d48292e88
+- id: 04-vapor-power-electric-steam
+  category: 04_heat_pump_tech
+  title: "Vapor Power — Electric Steam Boiler Manual (resistance-element)"
+  publisher: Vapor Power International
+  url: 
+    https://vaporpower.com/wp-content/uploads/2014/11/Electric-Steam-Boiler-Manual-2015.pdf
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/vapor-power-electric-steam-manual.pdf
+  notes: >
+    Resistance-element boiler line — separate technology from electrode.
+    Smaller process loads (kW–MW scale).
+
+  fetched_at: '2026-04-28T12:23:23.606051+00:00'
+  bytes: 406526
+  sha256: 3036adf5657e529c22835005b48b6e456f9c06c116d8397a862fd08db321ce39
+- id: 04-cleaver-brooks-clearfire-ce
+  category: 04_heat_pump_tech
+  title: "Cleaver-Brooks ClearFire-CE — condensing hydronic boiler (up to 20% H2 blends)"
+  publisher: Cleaver-Brooks
+  url: https://cleaverbrooks.com/product/cfce
+  licence: manufacturer-public
+  status: blocked
+  local_path: 04_heat_pump_tech/cleaver-brooks-clearfire-ce.html
+  notes: >-
+    HTTP 403: 403 Client Error: Forbidden for url: https://cleaverbrooks.com/product/cfce
+
+- id: 04-bosch-ut-h-hot-water
+  category: 04_heat_pump_tech
+  title: "Bosch Unimat UT-H — High-pressure hot water boiler (up to 18.3 MW, 225°C,
+    H2-ready retrofit)"
+  publisher: Bosch Industrial
+  url: 
+    https://www.bosch-industrial.com/global/en/ocs/commercial-industrial/unimat-hot-water-boiler-ut-h-669465-p/
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/bosch-ut-h.html
+  notes: >
+    Retrofittable to biogas / bio-oil / green H2. Pair with the Bosch Unimat
+    UT-L (heating boiler ≤25 MW) and Universal CSB (compact steam,
+    ≤23,600 kg/h). Brochure download hub:
+    https://www.bosch-industrial.com/global/en/commercial-industrial/service/catalogues/
+
+  fetched_at: '2026-04-28T12:23:29.292340+00:00'
+  bytes: 191122
+  sha256: d18ddabd9614ea5fe295eb6776245970b871dc2bc7556077ff3d07c19ca4b737
+- id: 04-bosch-csb-steam
+  category: 04_heat_pump_tech
+  title: "Bosch Universal CSB — Compact steam boiler (≤23,600 kg/h, H2-ready)"
+  publisher: Bosch Industrial
+  url: 
+    https://www.bosch-industrial.com/global/en/ocs/commercial-industrial/universal-steam-boiler-csb-1001957-p/
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/bosch-csb-steam.html
+  notes: >
+    Direct steam-load substitute for hydrogen-ready operation. Bosch Uni
+    Condens 8000F is the dedicated 100%-H2 product line —
+    https://www.bosch-industrial.com/gb/en/commercial-industrial/hydrogen-boiler.html
+
+  fetched_at: '2026-04-28T12:23:30.581225+00:00'
+  bytes: 205951
+  sha256: 544839de357f01ba91d82f872bfe5efc8e56a2c8c85310308021178bdc26313d
+- id: 04-kyoto-heatcube
+  category: 04_heat_pump_tech
+  title: "Kyoto Group Heatcube — molten-salt thermal battery (4–100 MWh, ≤25 MW discharge,
+    150–300°C steam)"
+  publisher: Kyoto Group AS
+  url: 
+    https://8855495.fs1.hubspotusercontent-na1.net/hubfs/8855495/Product-Brochure-Product_Heatcube_2025_EN.pdf
+  landing: https://www.kyotogroup.no/heatcube
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/kyoto-heatcube-2025.pdf
+  notes: >
+    Charges from low-price grid electricity, discharges as steam on demand.
+    >93% round-trip eff. Norbis Park and KALL Ingredients case studies
+    hosted on kyotogroup.no — pull as additional case-study entries.
+
+  fetched_at: '2026-04-28T12:23:32.650408+00:00'
+  bytes: 5651196
+  sha256: 4d56854c63c63d385d2db49d08b6e4a5deb93675e06ec40adff55cb4842f75cc
+- id: 04-energynest-thermalbattery
+  category: 04_heat_pump_tech
+  title: "EnergyNest ThermalBattery — concrete-based heat storage (up to 390°C, modular)"
+  publisher: EnergyNest
+  url: https://energy-nest.com/thermal-battery/
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/energynest-thermalbattery.html
+  notes: >
+    HEATCRETE® concrete + steel modules in 20-ft ISO containers. ~2 MWh per
+    module, scaling 5–1000+ MWh. Yara case study (chemicals) on
+    energy-nest.com worth pulling.
+
+  fetched_at: '2026-04-28T12:23:36.921266+00:00'
+  bytes: 521363
+  sha256: fe3439833b902069bccec026669ccf799a364fd2fb68351071776d48f73718b8
+- id: 04-rondo-rhb
+  category: 04_heat_pump_tech
+  title: "Rondo Heat Battery (RHB) — brick-bed thermal storage (≥1000°C, 40+ yr life)"
+  publisher: Rondo Energy
+  url: 
+    https://www.naseo.org/Data/Sites/1/documents/tk-news/rondo-energy-28-aug-2024-naseo-forum.pdf
+  landing: https://www.rondo.com/products
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/rondo-rhb-naseo-2024.pdf
+  notes: >
+    Joule-heated firebrick. >97% round-trip. 100 MWh deployment for HEINEKEN
+    via EDP — useful F&D anchor case. Datasheet may be gated; the NASEO
+    forum slide deck is the most data-dense free public document.
+
+  fetched_at: '2026-04-28T12:23:41.290852+00:00'
+  bytes: 1896299
+  sha256: 05f00ff731bb9f4a81aca75d18c72ecc8bb213c8df054ba7a4a4366495a4e4ee
+- id: 04-danfoss-ir-handbook
+  category: 04_heat_pump_tech
+  title: "Danfoss Industrial Refrigeration Application Handbook + Heat Pump Components
+    Selection Guide"
+  publisher: Danfoss
+  url: 
+    https://assets.danfoss.com/documents/latest/94982/AD137186428477en-020501.pdf
+  landing: 
+    https://www.danfoss.com/en/markets/refrigeration-and-air-conditioning/dcs/industrial-refrigeration/industrial-refrigeration-application-handbook/
+  licence: manufacturer-public
+  status: downloaded
+  local_path: 04_heat_pump_tech/danfoss-heat-pump-components-selection.pdf
+  notes: >
+    Plan's "Danfoss Termax" reference does not match a real product line.
+    Substituting the IR Application Handbook + Heat Pump Components Selection
+    Guide as the equivalent component-level reference.
+
+# =========================================================================
+# Section 5 — Public worked case studies (target: 15)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:23:42.986349+00:00'
+  bytes: 743567
+  sha256: fbb8abbdbd7dfd6572996ed381f1c18739393e981fc22a0b9410bdea71ffbc0c
+- id: 05-ietf-phase1-summer2020-winners
+  category: 05_case_studies
+  title: "IETF Phase 1 Summer 2020 — competition winners (Bradgate Bakery and others)"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/publications/industrial-energy-transformation-fund-ietf-competition-winners/ietf-phase-1-summer-2020-competition-winners
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/ietf-phase1-summer2020-winners.html
+  notes: >
+    F&D sector was 24 TWh/y, ~9 Mt CO2 (1% of UK). Bradgate Bakery installed
+    ammonia industrial refrigeration — useful baseline tech anchor.
+
+  fetched_at: '2026-04-28T12:23:44.138880+00:00'
+  bytes: 211131
+  sha256: 5055293adea9337a23e5d90ecfb0d31ae04ec28e9880ac260c5a7c452181b284
+- id: 05-ietf-phase2-autumn2022-winners
+  category: 05_case_studies
+  title: "IETF Phase 2 Autumn 2022 — competition winners"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/publications/industrial-energy-transformation-fund-ietf-competition-winners/ietf-phase-2-autumn-2022-competition-winners
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/ietf-phase2-autumn2022-winners.html
+  notes: >
+    Beverage chiller-tower case study (650 tCO2e/yr saving). Multiple F&D
+    refrigeration/heat-recovery projects.
+
+  fetched_at: '2026-04-28T12:23:45.252134+00:00'
+  bytes: 314387
+  sha256: bd0c371691871418744eb0769d1eabf53dabcf1a0335901ea5fc2ddbc6c1a0bd
+- id: 05-ietf-phase3-spring2024-winners
+  category: 05_case_studies
+  title: "IETF Phase 3 Spring 2024 — competition winners"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/publications/industrial-energy-transformation-fund-ietf-competition-winners/ietf-phase-3-spring-2024-competition-winners
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/ietf-phase3-spring2024-winners.html
+  notes: >
+    Most recent winners. Pull all four phase pages — Phase 1 Spring 2021,
+    Phase 1 Summer 2020, Phase 2 Spring 2022 + Autumn 2022, Phase 3 Spring 2024
+    and Autumn 2024 (if announced) — collectively the canonical UK
+    industrial decarb case-study corpus.
+
+  fetched_at: '2026-04-28T12:23:46.354824+00:00'
+  bytes: 246082
+  sha256: 07489ab0db8f71155b5bca1d0fc23e48f66936c7589ee8f5d196e6ef742b629a
+- id: 05-ietf-benefits-report
+  category: 05_case_studies
+  title: "Industrial Energy Transformation Fund — Benefits Report"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/6972cd0ad8adeaf266040584/ietf-benefits-report.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/ietf-benefits-report.pdf
+  notes: >
+    Aggregates outcomes across phases — energy savings, CO2 reductions, jobs.
+    Pioneer Foods (Peterborough) site case study included.
+
+  fetched_at: '2026-04-28T12:23:47.676775+00:00'
+  bytes: 419915
+  sha256: 340a499bd23503427fb0c18cb79ed7b5f67043919ee00835ca941fc62730502f
+- id: 05-fd-decarbonisation-action-plan-2017
+  category: 05_case_studies
+  title: "UK Food and Drink Sector Joint Industry-Government Decarbonisation Action
+    Plan"
+  publisher: BEIS / FDF / industry
+  url: 
+    https://assets.publishing.service.gov.uk/media/5a75594fed915d6faf2b24d3/food-and-drink-decarbonisation-action-plan.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/uk-fd-decarbonisation-action-plan.pdf
+  notes: >
+    Joint government-industry action plan — directly covers the vertical
+    slice. References the 2015 sector roadmap.
+
+  fetched_at: '2026-04-28T12:23:48.936321+00:00'
+  bytes: 982610
+  sha256: f6bae95916edba61875e7a0c05f846695463f3abf1c96138cd45515e069f99df
+- id: 05-roadmaps-2050-cross-sector
+  category: 05_case_studies
+  title: "Industrial Decarbonisation and Energy Efficiency Roadmaps to 2050 — Cross-Sector
+    Summary"
+  publisher: DECC / BIS (now DESNZ); produced by Parsons Brinckerhoff + DNV GL
+  url: 
+    https://assets.publishing.service.gov.uk/media/5a817f9640f0b62302697a1b/Cross_Sector_Summary_Report.pdf
+  landing: 
+    https://www.gov.uk/government/publications/industrial-decarbonisation-and-energy-efficiency-roadmaps-to-2050
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/uk-industrial-decarb-roadmap-2050-cross-sector.pdf
+  notes: >
+    Cross-sector summary covering eight heat-intensive sectors:
+    cement, ceramics, chemicals, food & drink, glass, iron & steel,
+    oil refining, paper & pulp. "Max Tech" pathway: 81 → 22 MtCO2/yr.
+    Pull the F&D-specific report separately (next entry).
+
+  fetched_at: '2026-04-28T12:23:50.143100+00:00'
+  bytes: 1122595
+  sha256: 6373154da973a6a3a5d654daa916847dfccc4f1f3b11e803d49218bbe45fba25
+- id: 05-roadmap-2050-food-drink
+  category: 05_case_studies
+  title: "Industrial Decarbonisation Roadmap to 2050 — Food and Drink sector report"
+  publisher: DECC / BIS
+  url: 
+    https://www.gov.uk/government/publications/industrial-decarbonisation-and-energy-efficiency-roadmaps-to-2050
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    05_case_studies/uk-industrial-decarb-roadmap-2050-food-and-drink.pdf
+  notes: >
+    Sector-specific F&D report under the same 2015 roadmap programme.
+    Direct asset URL needs to be picked off the landing page during download
+    (the landing-page index links each sector's PDF separately).
+
+  fetched_at: '2026-04-28T12:23:51.742037+00:00'
+  bytes: 2786110
+  sha256: 4f0f3e83db90e6b46536315533bac26e1f2b89dcf37469db2441c998d69e3876
+- id: 05-roadmap-2050-iron-steel
+  category: 05_case_studies
+  title: "Industrial Decarbonisation Roadmap to 2050 — Iron and Steel sector report"
+  publisher: DECC / BIS
+  url: 
+    https://assets.publishing.service.gov.uk/media/5a80151940f0b62302691675/Iron_and_Steel_Report.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/uk-industrial-decarb-roadmap-2050-iron-steel.pdf
+  notes: >
+    Cross-sector reference value — iron-and-steel has the deepest published
+    methodology in the 2015 set, useful as a methodological template even for
+    F&D work.
+
+  fetched_at: '2026-04-28T12:23:52.993960+00:00'
+  bytes: 2786110
+  sha256: 4f0f3e83db90e6b46536315533bac26e1f2b89dcf37469db2441c998d69e3876
+- id: 05-ukerc-decarbonising-heat-synthesis
+  category: 05_case_studies
+  title: "UKERC — Decarbonising Heat: Synthesis Report"
+  publisher: UK Energy Research Centre
+  url: https://ukerc.ac.uk/publications/decarbonising-heat-synthesis-report/
+  licence: open-access
+  status: blocked
+  local_path: 05_case_studies/ukerc-decarbonising-heat-synthesis.pdf
+  notes: >-
+    Expected PDF but got HTML: Got HTML but expected PDF; no PDF link found
+
+- id: 05-ukerc-best-practice-heat-decarb
+  category: 05_case_studies
+  title: "UKERC — Best Practice in Heat Decarbonisation Policy (for the CCC)"
+  publisher: UKERC / Climate Change Committee
+  url: 
+    https://www.theccc.org.uk/wp-content/uploads/2017/01/UKERC-for-the-CCC-Best-practice-in-heat-decarbonisation-policy.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 05_case_studies/ukerc-ccc-best-practice-heat-decarb.pdf
+  notes: >
+    Policy assessment commissioned by the CCC. International comparators.
+
+  fetched_at: '2026-04-28T12:23:56.203847+00:00'
+  bytes: 1196009
+  sha256: 2d33f4c2b0adb2603b821d0a30b5abbbc2cda8c47cd32b51a7f803f5bdbc9984
+- id: 05-hynet-full-business-case
+  category: 05_case_studies
+  title: "HyNet Cluster — Full Business Case for CCUS (June 2025)"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/685bbbb5c07c71e5a8709799/hynet-full-business-case.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/hynet-full-business-case-2025.pdf
+  notes: >
+    Track-1 CCUS cluster (NW England + N Wales). £22bn HMG envelope across
+    both Track-1 clusters. Useful for cost-benchmark anchoring.
+
+  fetched_at: '2026-04-28T12:23:57.427158+00:00'
+  bytes: 1029456
+  sha256: a9b6d8a80c00e77ee4b3d15de4ec212308ce1a71a696eed593af156b0701b570
+- id: 05-track1-ccus-accounting-officer-2024
+  category: 05_case_studies
+  title: "Track-1 CCUS — HyNet + East Coast Cluster Accounting Officer Assessment
+    2024"
+  publisher: DESNZ
+  url: 
+    https://www.gov.uk/government/publications/department-for-energy-security-and-net-zero-major-projects-accounting-officer-assessments/track-1-carbon-capture-usage-and-storage-programme-hynet-and-east-coast-cluster-accounting-officer-assessment-2024
+  licence: ogl-v3
+  status: downloaded
+  local_path: 05_case_studies/track1-ccus-aoa-2024.html
+  notes: >
+    Combined targeting: 33 MtCO2/y removal, 31k jobs. Approval governance.
+
+  fetched_at: '2026-04-28T12:23:58.506510+00:00'
+  bytes: 91578
+  sha256: 083e0c6b5ca906f7d00fbd746652206671d03e6ae24a79ba69d2dc215c3425f5
+- id: 05-fdf-net-zero-handbook
+  category: 05_case_studies
+  title: "FDF — Achieving Net Zero: A Handbook for the UK Food and Drink Sector"
+  publisher: Food and Drink Federation (FDF)
+  url: 
+    https://www.fdf.org.uk/globalassets/resources/publications/guidance/compressed_fdf-net-zero-handbook-final-111021.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 05_case_studies/fdf-net-zero-handbook.pdf
+  notes: >
+    Industry handbook — practical guidance for F&D manufacturers. Pair with
+    the FDF "Roadmap to Net Zero Overview"
+    (https://www.fdf.org.uk/globalassets/resources/publications/guidance/net-zero-handbook-summary.pdf).
+
+  fetched_at: '2026-04-28T12:24:01.552974+00:00'
+  bytes: 39604264
+  sha256: 0bdc9bfcf067a72019ef2554c6cf9c3dc9853f5a36250c589312baa7385092de
+- id: 05-fooddrinkeurope-decarb-roadmap-ricardo
+  category: 05_case_studies
+  title: "Decarbonisation Roadmap for the European Food and Drink Manufacturing Sector
+    (Ricardo for FoodDrinkEurope)"
+  publisher: FoodDrinkEurope (analysis by Ricardo Energy & Environment)
+  url: 
+    https://www.fooddrinkeurope.eu/wp-content/uploads/2021/09/Decarbonising-the-European-food-and-drink-manufacturing-sector_v2.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 05_case_studies/fooddrinkeurope-decarb-roadmap.pdf
+  notes: >
+    EU-level analogue to the UK 2015 sector roadmap. Useful for tech-mix
+    cross-check (penetration of HPs, mechanical vapour recompression,
+    steam electrification).
+
+  fetched_at: '2026-04-28T12:24:03.961524+00:00'
+  bytes: 1988038
+  sha256: 2dcb1bed0a573d09193117a5361521cec04de9537bd2266b0675a796a7ba8920
+- id: 05-makeuk-siemens-decarbonising-manufacturing
+  category: 05_case_studies
+  title: "Make UK / Siemens — Decarbonising Manufacturing: Challenges and Solutions"
+  publisher: Make UK (sponsored by Siemens)
+  url: 
+    https://www.makeuk.org/-/media/eef/files/reports/make-uk-siemens-decarbonising-manufacturing.pdf
+  licence: open-access
+  status: blocked
+  local_path: 05_case_studies/makeuk-siemens-decarbonising-manufacturing.pdf
+  notes: >-
+    HTTP 404: 404 Client Error: Not Found for url: https://www.makeuk.org/-/media/eef/files/reports/make-uk-siemens-decarbonising-manufacturing.pdf
+
+- id: 05-makeuk-tackling-electricity-prices
+  category: 05_case_studies
+  title: "Make UK — Tackling Electricity Prices for Manufacturers"
+  publisher: Make UK
+  url: 
+    https://www.makeuk.org/docs/tackling-electricity-prices-manufacturers-reportpdf/download?attachment=
+  licence: open-access
+  status: downloaded
+  local_path: 05_case_studies/makeuk-electricity-prices.pdf
+  notes: >
+    Industrial electricity-cost framing — directly relevant to the
+    techno-economic case for steam electrification vs gas.
+
+  fetched_at: '2026-04-28T12:24:08.852995+00:00'
+  bytes: 779256
+  sha256: 9968dbe244d1d21ebe6d377c5a32209ab0e3da1ee4683918d2277eebfa0dfe5f
+- id: 05-creds-industrial-decarb-policies
+  category: 05_case_studies
+  title: "CREDS — Industrial Decarbonisation Policies for a UK Net Zero Target (Dec
+    2020)"
+  publisher: CREDS / CCC
+  url: 
+    https://www.theccc.org.uk/wp-content/uploads/2020/12/CREDS-Industrial-decarbonisation-policies-for-a-UK-Net-Zero-target.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 05_case_studies/creds-industrial-decarb-policies-2020.pdf
+  notes: >
+    Hosted on CCC site. Policy menu — useful for "what gov can/should do"
+    framing in agent outputs.
+
+# =========================================================================
+# Section 6 — Food & drink sector knowledge (target: 10)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:24:10.118452+00:00'
+  bytes: 3581047
+  sha256: 5400d1348c6c05b95cbfe6175f5d35ba7f3a0f584157c45bbef4f6a6901cd34c
+- id: 06-bref-food-drink-milk-2019
+  category: 06_sector_food_drink
+  title: "BREF — Best Available Techniques for the Food, Drink and Milk Industries
+    (JRC118627, Dec 2019)"
+  publisher: European Commission JRC / EU IPPC Bureau
+  url: 
+    https://eippcb.jrc.ec.europa.eu/sites/default/files/2020-01/JRC118627_FDM_Bref_2019_published.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/bref-food-drink-milk-jrc118627-2019.pdf
+  notes: >
+    The single most comprehensive process-knowledge document for the F&D
+    vertical slice. Adopted Dec 2019 under Industrial Emissions Directive
+    2010/75/EU. Covers BAT for energy + water, emission limits, technology
+    menus per sub-process. ~700+ pages — chunking quality matters here.
+
+  fetched_at: '2026-04-28T12:24:26.402585+00:00'
+  bytes: 17189724
+  sha256: 7c07eec257a94143efef664e5c6e2a901a5f7cb05c3134ac36acb3dfeb9d0212
+- id: 06-bbpa-uk-brewing-30-years-environment
+  category: 06_sector_food_drink
+  title: "BBPA — The British Brewing Industry: Thirty Years of Environmental Improvement"
+  publisher: British Beer and Pub Association
+  url: 
+    https://www.campdenbri.co.uk/sustainablebrewing/EnvironmentArticleBBPA.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/bbpa-30-years-environmental-improvement.pdf
+  notes: >
+    UK brewing-sector longitudinal data. CO2 down 42% 2008-18, energy per
+    pint down 20%. Useful baseline trajectory.
+
+  fetched_at: '2026-04-28T12:24:27.680086+00:00'
+  bytes: 800703
+  sha256: 6a49d3fd615ed61b4c14e67346d4b9e1b039021bd4c84e0053be8688aef2b248
+- id: 06-zerocarbonforum-bbpa-brewing-roadmap
+  category: 06_sector_food_drink
+  title: "Zero Carbon Forum + BBPA — UK Brewing Sector Net Zero Roadmap (landing)"
+  publisher: Zero Carbon Forum / BBPA
+  url: 
+    https://beerandpub.com/policies/responsibility/environmental-responsibility/
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/bbpa-zerocarbonforum-roadmap.html
+  notes: >
+    Sector-specific net-zero roadmap. Landing page; PDF link to be picked
+    off during download.
+
+  fetched_at: '2026-04-28T12:24:29.142844+00:00'
+  bytes: 495300
+  sha256: ae941a86cc2545ca91ded907f52b7c6d50fe6c5e087779255fcdb1300366ec24
+- id: 06-brewers-association-energy-manual
+  category: 06_sector_food_drink
+  title: "Brewers Association — Energy Usage, GHG Reduction, Efficiency and Load Management
+    Manual"
+  publisher: Brewers Association (US)
+  url: 
+    https://www.brewersassociation.org/attachments/0001/1530/Sustainability_Energy_Manual.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/brewers-association-energy-manual.pdf
+  notes: >
+    US craft-brewer manual — process-engineering depth (mash, boil, CIP,
+    packaging) translates directly to UK breweries. Largest single piece of
+    free brewery process-energy literature.
+
+  fetched_at: '2026-04-28T12:24:32.373192+00:00'
+  bytes: 5713036
+  sha256: bdec08b6b989bb1dc7c65647a0dade0eb3089353e6040017f9fb82606e36692f
+- id: 06-ahdb-dairy-knowledge-library
+  category: 06_sector_food_drink
+  title: "AHDB Dairy — Energy efficiency knowledge library (multiple guides)"
+  publisher: AHDB
+  url: 
+    https://ahdb.org.uk/knowledge-library/improving-energy-efficiency-on-dairy-farms
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/ahdb-dairy-energy-efficiency.html
+  notes: >
+    AHDB's content is mostly farm-level. Pull the guides on milk cooling,
+    plate heat exchangers, refrigeration and electricity management as
+    separate HTML pages. Note: the canonical UK milk-processing-plant
+    heat-load profile is published by Dairy UK rather than AHDB — separate
+    entry below once located.
+
+  fetched_at: '2026-04-28T12:24:34.029196+00:00'
+  bytes: 118192
+  sha256: 0e7207737c4392b9018796a37efd50047255f05592b00e2b89ffc06de17c497f
+- id: 06-ahdb-milk-cooling-plate-hex
+  category: 06_sector_food_drink
+  title: "AHDB — Milk Pre-cooling: Plate Heat Exchangers"
+  publisher: AHDB
+  url: 
+    https://ahdb.org.uk/knowledge-library/milk-pre-cooling-plate-heat-exchangers
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/ahdb-milk-precooling-plate-hex.html
+  notes: >
+    Specific HX guidance — pre-cooling milk from ~32°C to <8°C, and the
+    potential heat-recovery loops that pair with it.
+
+  fetched_at: '2026-04-28T12:24:35.091222+00:00'
+  bytes: 130816
+  sha256: d49650b897c467db1e0f7fbb0f3d5acc7e27c6edf5d922d6be345d25add9d414
+- id: 06-carbon-trust-refrigeration-systems-ctg046
+  category: 06_sector_food_drink
+  title: "Carbon Trust CTG046 — Refrigeration Systems Technology Guide"
+  publisher: Carbon Trust
+  url: 
+    https://www.carbontrust.com/our-work-and-impact/guides-reports-and-tools/refrigeration-guide
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/carbon-trust-ctg046-refrigeration.pdf
+  notes: >
+    Refrigeration is 6% of UK F&D site energy and the dominant power load.
+    Up to 20% reduction available with low/no-cost actions per Carbon Trust.
+
+  fetched_at: '2026-04-28T12:24:36.668659+00:00'
+  bytes: 874482
+  sha256: 80747a7044ccccfa74d6a4ae31e9005d57b0528cedaa2688df87519bfec83802
+- id: 06-carbon-trust-heat-recovery-refrigeration-ctl056
+  category: 06_sector_food_drink
+  title: "Carbon Trust CTL056 — How to implement heat recovery in refrigeration"
+  publisher: Carbon Trust
+  url: https://issuu.com/simplymarcomms/docs/carbon_trust_-_how_to_implement_hea
+  licence: open-access
+  status: blocked
+  local_path: 06_sector_food_drink/carbon-trust-ctl056-heat-recovery-refrig.pdf
+  notes: >-
+    HTTP 404: 404 Client Error: Not Found for url: https://issuu.com/simplymarcomms/docs/carbon_trust_-_how_to_implement_hea
+
+- id: 06-carbon-trust-heat-recovery-systems
+  category: 06_sector_food_drink
+  title: "Carbon Trust — Heat Recovery: A guide to key systems and applications"
+  publisher: Carbon Trust
+  url: 
+    https://energycut.com.au/business/wp-content/uploads/2015/02/Carbon-Trust-Heat-Recovery.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/carbon-trust-heat-recovery-systems.pdf
+  notes: >
+    Broader heat-recovery primer — economisers, run-around coils, MVR,
+    wheel exchangers. Mirror copy (energycut.com.au); the original was
+    hosted on carbontrust.com but moved.
+
+  fetched_at: '2026-04-28T12:24:46.090754+00:00'
+  bytes: 4216052
+  sha256: 82957ec81eae3bc30a971ed0c74e4e5b080985b04c2848efa89f237c43ba71a6
+- id: 06-carbon-trust-food-prep-catering
+  category: 06_sector_food_drink
+  title: "Carbon Trust — Food Preparation and Catering"
+  publisher: Carbon Trust
+  url: 
+    https://www.dcproducts.co.uk/documents/carbon_trust_food_preparation_and_catering-2.pdf
+  licence: open-access
+  status: blocked
+  local_path: 06_sector_food_drink/carbon-trust-food-prep-catering.pdf
+  notes: >-
+    HTTP 404: 404 Client Error: Not Found for url: https://dcproducts.co.uk/documents/carbon_trust_food_preparation_and_catering-2.pdf
+
+- id: 06-fcrn-food-refrigeration-paper
+  category: 06_sector_food_drink
+  title: "FCRN — Food Refrigeration: a sector under the spotlight (2007)"
+  publisher: Food Climate Research Network
+  url: 
+    https://www.tabledebates.org/sites/default/files/2020-10/FCRN%20refrigeration%20paper%20final.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/fcrn-food-refrigeration-2007.pdf
+  notes: >
+    Older but still authoritative full-system view of UK food cold chain
+    energy/CO2. Dated, but useful for grounding split between processing,
+    transport, retail, and domestic refrigeration loads.
+
+  fetched_at: '2026-04-28T12:24:53.998204+00:00'
+  bytes: 627724
+  sha256: b88066c08158b5545f01a9b7c79223c0e9b2345fd0ac62b179e39bc0d777c66e
+- id: 06-energy-demand-uk-food-chain
+  category: 06_sector_food_drink
+  title: "Energy demand and reduction opportunities in the UK food chain"
+  publisher: Sustainable Systems Group
+  url: 
+    https://www.sustainable-systems.org.uk/files/Energy_demand_in_food_chains.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 06_sector_food_drink/uk-food-chain-energy-demand.pdf
+  notes: >
+    UK food chain energy mapping — useful cross-reference to BREF and FCRN.
+
+# =========================================================================
+# Section 7 — Pinch analysis and process integration (target: 8)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:24:55.356323+00:00'
+  bytes: 124219
+  sha256: 502eef69bafd1201a78dc1c20ce64bd23e0cd7059971a86d750345a99ec2da2a
+- id: 07-linnhoff-march-introduction
+  category: 07_pinch_analysis
+  title: "Introduction to Pinch Technology (Linnhoff March, 1998)"
+  publisher: "Linnhoff March (mirror: University of Oklahoma)"
+  url: 
+    https://www.ou.edu/class/che-design/a-design/Introduction%20to%20Pinch%20Technology-LinhoffMarch.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/linnhoff-march-introduction-1998.pdf
+  notes: >
+    The canonical free pinch primer. Composite curves, problem table
+    algorithm, three rules of the pinch, capital-energy trade-off,
+    retrofit, distillation column integration, heat-pump-on-pinch placement.
+    Mirror copy on ou.edu (same content as the original Linnhoff March
+    PDF). 56 pages.
+
+  fetched_at: '2026-04-28T12:24:59.093220+00:00'
+  bytes: 1627561
+  sha256: 25ff4065828af07776fba0b8754cdf23d197b75a14240a9a8431fe766b062e90
+- id: 07-ou-pinch-heat-integration-lectures
+  category: 07_pinch_analysis
+  title: "University of Oklahoma — Pinch Analysis and Heat Integration (lecture notes,
+    Part 1: minimum utility usage)"
+  publisher: University of Oklahoma (CHE 5480)
+  url: 
+    https://www.ou.edu/class/che-design/che5480-13/PINCH%20ANALYSIS%20Part%201-%20Pinch%20and%20Minimum%20Utility%20Usage.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/ou-pinch-part1-utility-usage.pdf
+  notes: >
+    Worked-example-driven lectures. Useful for grounding the agent in the
+    actual mechanics, not just the rules.
+
+  fetched_at: '2026-04-28T12:25:01.376481+00:00'
+  bytes: 256084
+  sha256: 02ddd992cf252319c0f6a331d62dc457fd09debdf0414ecc3f08754bc73320af
+- id: 07-pinch-ch-tutorial-1
+  category: 07_pinch_analysis
+  title: "PinCH Tutorial 1 — Continuous Production Plant"
+  publisher: Lucerne University of Applied Sciences (HSLU)
+  url: 
+    https://www.pinch.ch/docs/PDFs-Tutorials/PinCH_Tutorial_1_Continuous_Production_Plant_EN.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/pinch-ch-tutorial-1-continuous.pdf
+  notes: >
+    Worked tutorial accompanying the PinCH software (Swiss FOEN tool —
+    industrially used for energy audits). Continuous-process variant —
+    directly applicable to F&D processing. Tutorial 2 (batch) also relevant
+    for brewery applications; pull both.
+
+  fetched_at: '2026-04-28T12:25:02.838774+00:00'
+  bytes: 2079659
+  sha256: 2efd72669de37f4cebec36e8ad7264274e729772749556e68c676c69a018a09d
+- id: 07-pinch-ch-user-manual
+  category: 07_pinch_analysis
+  title: "PinCH — Analysis and Design Tool for Process Integration (User Manual v3.2)"
+  publisher: HSLU
+  url: https://www.pinch.ch/docs/PDFs-Various/pinch_user_manual_v_3_2.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/pinch-ch-user-manual-v3.2.pdf
+  notes: >
+    Software user manual — actually includes a strong methodology refresher
+    in early chapters. Good cross-reference for vocabulary.
+
+  fetched_at: '2026-04-28T12:25:04.321857+00:00'
+  bytes: 9302768
+  sha256: 40fa056ad8e66f2333f65dc9dfedb3a2074c147f56a819879fe207081941c3ba
+- id: 07-doe-process-heating-sourcebook
+  category: 07_pinch_analysis
+  title: "DOE — Improving Process Heating System Performance: A Sourcebook for Industry
+    (3rd ed)"
+  publisher: US DOE Advanced Manufacturing Office / IHEA
+  url: 
+    https://www.energy.gov/sites/prod/files/2016/04/f30/Improving%20Process%20Heating%20System%20Performance%20A%20Sourcebook%20for%20Industry%20Third%20Edition_0.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/doe-process-heating-sourcebook-3e.pdf
+  notes: >
+    Tip sheets covering combustion control, insulation, waste-heat recovery,
+    load-matching, scheduling, and more. Less academic than Linnhoff March
+    but more directly actionable.
+
+  fetched_at: '2026-04-28T12:25:05.701235+00:00'
+  bytes: 3590328
+  sha256: 14a1541f606c59989cfc549962ab632afac4c6be34bc03e792d721123ba43325
+- id: 07-doe-process-heating-sourcebook-2e
+  category: 07_pinch_analysis
+  title: "DOE — Process Heating Sourcebook (2nd ed) — extended technical briefs"
+  publisher: US DOE
+  url: 
+    https://www1.eere.energy.gov/manufacturing/tech_assistance/pdfs/process_heating_sourcebook2.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/doe-process-heating-sourcebook-2e.pdf
+  notes: >
+    Older edition — kept for some technical briefs deprecated from the 3rd ed.
+
+  fetched_at: '2026-04-28T12:25:08.427055+00:00'
+  bytes: 2498682
+  sha256: 43a7bdb9d4f90ad49e5a8c0af43d8a60118bd816923c35f7a2bef682e862a2bb
+- id: 07-cheresources-pinch-basics
+  category: 07_pinch_analysis
+  title: "Cheresources — Pinch Technology: Basics for the Beginners"
+  publisher: cheresources.com
+  url: 
+    https://www.cheresources.com/invision/index.php?app=core&module=attach&section=attach&attach_id=9707
+  licence: open-access
+  status: downloaded
+  local_path: 07_pinch_analysis/cheresources-pinch-basics.pdf
+  notes: >
+    Compact (~30 pp) practitioner-level primer. Useful glossary / cross-reference.
+
+  fetched_at: '2026-04-28T12:25:14.170670+00:00'
+  bytes: 1598914
+  sha256: 8f6e42061adae0f41a083f7dd5abef470f066909b3287aeb5788471d955432a2
+- id: 07-kemp-pinch-analysis-textbook
+  category: 07_pinch_analysis
+  title: "Kemp — Pinch Analysis and Process Integration (Elsevier / IChemE, 3rd ed:
+    Pinch Analysis for Energy and Carbon Footprint Reduction)"
+  publisher: Elsevier (IChemE imprint)
+  url: 
+    https://shop.elsevier.com/books/pinch-analysis-for-energy-and-carbon-footprint-reduction/kemp/978-0-08-102536-9
+  licence: paid
+  status: paid
+  local_path: 07_pinch_analysis/kemp-pinch-analysis-3e.pdf
+  notes: >
+    The canonical textbook. PAID (~£90). The Kemp 2nd ed is the one named
+    in the plan; the 3rd ed (2020) is now current. Recommend buying for full
+    methodology coverage. ScienceDirect (institutional access) hosts chapter
+    previews. Manifest holds purchase URL.
+
+- id: 07-icheme-linnhoff-user-guide
+  category: 07_pinch_analysis
+  title: "Linnhoff et al — User Guide on Process Integration for the Efficient Use
+    of Energy (IChemE, 1982 / 1994 rev)"
+  publisher: IChemE
+  url: 
+    https://www.researchgate.net/publication/281458935_A_User_Guide_on_Process_Integration_for_the_Efficient_Use_of_Energy
+  licence: paid
+  status: paid
+  local_path: 07_pinch_analysis/icheme-linnhoff-user-guide-1994.pdf
+  notes: >
+    The original IChemE pinch guide. Out of print; second-hand only. Kemp's
+    3rd ed effectively supersedes it. Lower priority than Kemp.
+
+# =========================================================================
+# Section 8 — Techno-economic methodology (target: 5)
+# =========================================================================
+
+- id: 08-hmt-green-book-2022
+  category: 08_techno_economic
+  title: "HM Treasury — The Green Book: Central Government Guidance on Appraisal and
+    Evaluation (2022, with updated links)"
+  publisher: HM Treasury
+  url: 
+    https://assets.publishing.service.gov.uk/media/6645c709bd01f5ed32793cbc/Green_Book_2022__updated_links_.pdf
+  landing: 
+    https://www.gov.uk/government/collections/the-green-book-and-accompanying-guidance-and-documents
+  licence: ogl-v3
+  status: downloaded
+  local_path: 08_techno_economic/hmt-green-book-2022.pdf
+  notes: >
+    Sets the appraisal methodology used in any IETF / public-funding-grade
+    business case. Five-case model. Defines social discount rate (3.5%),
+    optimism bias treatment, monetisation rules. The 2025 review
+    (https://assets.publishing.service.gov.uk/media/687129f52557debd867cc06f/Green_Book_Review_2025.pdf)
+    should also be pulled — separate entry below.
+
+  fetched_at: '2026-04-28T12:25:15.411495+00:00'
+  bytes: 973350
+  sha256: 275602acb918e4d32e46c59e5d0596bebcfc5e2820ec86f489a8651c523ccc37
+- id: 08-hmt-green-book-review-2025
+  category: 08_techno_economic
+  title: "Green Book Review 2025 — Findings and Actions"
+  publisher: HM Treasury
+  url: 
+    https://assets.publishing.service.gov.uk/media/687129f52557debd867cc06f/Green_Book_Review_2025.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 08_techno_economic/hmt-green-book-review-2025.pdf
+  notes: >
+    Updates from 2025 review. Pull alongside the main 2022 Green Book to
+    catch any methodology shifts.
+
+  fetched_at: '2026-04-28T12:25:16.535487+00:00'
+  bytes: 285011
+  sha256: fc8382539dfcd4c805f9b0fabeb3fd3c2fcf7dd498900451201ac776da970ad6
+- id: 08-desnz-eep-2024-2050
+  category: 08_techno_economic
+  title: "DESNZ — Energy and Emissions Projections 2024 to 2050"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/6981e958015e2ba11991bb7a/energy-emissions-projections-report-2024-2050.pdf
+  landing: 
+    https://www.gov.uk/government/collections/energy-and-emissions-projections
+  licence: ogl-v3
+  status: downloaded
+  local_path: 08_techno_economic/desnz-eep-2024-2050.pdf
+  notes: >
+    Official UK projections of energy demand, generation mix, and emissions
+    by sector to 2050. The basis for any UK-policy-aligned scenario in the
+    agent's outputs. Pull annual updates.
+
+  fetched_at: '2026-04-28T12:25:17.821691+00:00'
+  bytes: 376892
+  sha256: 206c737b1bc4ec4ec3e2866c2861feda4a91c82a96b537f3cf6e8b665f08b23e
+- id: 08-desnz-fossil-fuel-price-2025
+  category: 08_techno_economic
+  title: "DESNZ — Fossil Fuel Price Assumptions 2025"
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/696939b3448fedc1eb424870/fossil-fuel-price-assumptions-2025.pdf
+  landing: 
+    https://www.gov.uk/government/publications/fossil-fuel-price-assumptions-2025
+  licence: ogl-v3
+  status: downloaded
+  local_path: 08_techno_economic/desnz-fossil-fuel-prices-2025.pdf
+  notes: >
+    Three gas-price scenarios to 2050 (low/central/high). Mandatory inputs
+    for any UK-grade techno-economic analysis. Industrial gas price is the
+    counterfactual against which steam-electrification economics are judged.
+
+  fetched_at: '2026-04-28T12:25:18.986824+00:00'
+  bytes: 459848
+  sha256: 8170832a65c532a0f76a506cce6f8c8c16c880aa66d93258c10fc2873b84e970
+- id: 08-iea-weo-2025
+  category: 08_techno_economic
+  title: "IEA — World Energy Outlook 2025 (full PDF)"
+  publisher: International Energy Agency
+  url: 
+    https://iea.blob.core.windows.net/assets/0a7a40a4-5dcb-4d6e-a7ad-76a1c90ec8eb/WorldEnergyOutlook2025.pdf
+  landing: https://www.iea.org/reports/world-energy-outlook-2025
+  licence: open-access
+  status: downloaded
+  local_path: 08_techno_economic/iea-weo-2025.pdf
+  notes: >
+    Three scenarios: Current Policies (CPS), Stated Policies (STEPS),
+    Net Zero by 2050 (NZE). International cross-check on UK projections.
+    Free dataset (CC-BY-NC-SA 4.0) at IEA also worth pulling for the
+    structured numbers.
+
+  fetched_at: '2026-04-28T12:25:21.127529+00:00'
+  bytes: 15124275
+  sha256: 82c3faf54ab7e3b362f3946cad8a089a2079daac92539b632716c982f92c6186
+- id: 08-lazard-lcoe-plus-2025
+  category: 08_techno_economic
+  title: "Lazard — Levelized Cost of Energy+ (LCOE+) 2025 (18th edition, June 2025)"
+  publisher: Lazard
+  url: https://www.lazard.com/media/eijnqja3/lazards-lcoeplus-june-2025.pdf
+  landing: 
+    https://www.lazard.com/research-insights/levelized-cost-of-energyplus-lcoeplus/
+  licence: open-access
+  status: downloaded
+  local_path: 08_techno_economic/lazard-lcoe-plus-2025.pdf
+  notes: >
+    Unsubsidised LCOE / LCOS by technology. Used for cross-checking own
+    generation-cost assumptions and battery / thermal-storage cost trends.
+
+  fetched_at: '2026-04-28T12:25:23.728155+00:00'
+  bytes: 1840877
+  sha256: e277ce0324a3b699c70c7c0398e766d15729255be563af89af8d6bd091caee1a
+- id: 08-nrel-atb-2024-electricity
+  category: 08_techno_economic
+  title: "NREL Annual Technology Baseline 2024 — Electricity (documentation PDF +
+    dataset)"
+  publisher: NREL
+  url: https://docs.nrel.gov/docs/fy24osti/89960.pdf
+  landing: https://atb.nrel.gov/electricity/2024/index
+  licence: open-access
+  status: downloaded
+  local_path: 08_techno_economic/nrel-atb-2024-electricity.pdf
+  notes: >
+    Capital cost trajectories by technology (PV, wind, batteries, geothermal,
+    etc.) on three R&D advancement scenarios. ATB-Calc workbook also worth
+    pulling. 2025 ATB may be available shortly — check before week-1 cutoff.
+
+# =========================================================================
+# Section 9 — Reference consultancy reports (target: 5)
+# =========================================================================
+
+  fetched_at: '2026-04-28T12:25:30.298985+00:00'
+  bytes: 4236622
+  sha256: 48aad67e23181fbb3d67e9c29cc4d57da5631a48f798029b79bbd8ec3f30ce1c
+- id: 09-element-energy-deep-decarb-pathways-uk-industry
+  category: 09_reference_reports
+  title: "Element Energy — Deep-Decarbonisation Pathways for UK Industry (for the
+    CCC)"
+  publisher: Element Energy / Climate Change Committee
+  url: 
+    https://www.theccc.org.uk/wp-content/uploads/2020/12/Element-Energy-Deep-Decarbonisation-Pathways-for-UK-Industry.pdf
+  landing: 
+    https://www.theccc.org.uk/publication/deep-decarbonisation-pathways-for-uk-industry-element-energy/
+  licence: open-access
+  status: downloaded
+  local_path: 
+    09_reference_reports/element-energy-deep-decarb-pathways-uk-industry.pdf
+  notes: >
+    The N-ZIP (Net Zero Industry Pathway) model — pathways, costs, policies.
+    Closest in shape to what the agent will produce. Methodologically
+    important — read alongside their full appendices.
+
+  fetched_at: '2026-04-28T12:25:31.722556+00:00'
+  bytes: 3311501
+  sha256: 592b3b8a065add1bea43afca31ed866d7195c91c35567db831087333524f14f0
+- id: 09-element-energy-surplus-heat-industry
+  category: 09_reference_reports
+  title: "Element Energy et al — The Potential for Recovering and Using Surplus Heat
+    from Industry (for BEIS)"
+  publisher: Element Energy (et al, for BEIS)
+  url: 
+    https://assets.publishing.service.gov.uk/media/5a7b9b0b40f0b645ba3c5668/element_energy_et_al_potential_for_recovering_and_using_surplus_heat_from_industry.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 09_reference_reports/element-energy-surplus-heat-industry.pdf
+  notes: >
+    Heat-recovery potential by sector — F&D is in scope. Direct input to
+    the engine's heat-integration sub-module.
+
+  fetched_at: '2026-04-28T12:25:33.114807+00:00'
+  bytes: 2724308
+  sha256: bbd413c325c7a8d1658a796f8bb031bfa0380cf3b0691a75e5d320d2c3f1d4b5
+- id: 09-ricardo-aea-decarbonisation-heat-industry-literature
+  category: 09_reference_reports
+  title: "Ricardo AEA — Decarbonisation of Heat in Industry: A Review of the Research
+    Evidence"
+  publisher: Ricardo AEA / Imperial College (for BEIS)
+  url: 
+    https://assets.publishing.service.gov.uk/media/5a7c8be6ed915d6969f45a43/D13_951813__Ricardo_AEA_Industrial_Decarbonisation_Literature_Review_201___.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 09_reference_reports/ricardo-aea-heat-decarb-literature-review.pdf
+  notes: >
+    Literature review across nine major emitting sectors. Foundation
+    evidence base referenced by the 2021 Industrial Decarbonisation Strategy.
+
+  fetched_at: '2026-04-28T12:25:34.424934+00:00'
+  bytes: 2400385
+  sha256: 681ee2db9188619305ceae606ca01e742d174ed9bf9d215fc2945b619124a92a
+- id: 09-ricardo-barriers-industrial-heat-decarb-ireland
+  category: 09_reference_reports
+  title: "Ricardo — Barriers to Industrial Heat Decarbonisation (Ireland)"
+  publisher: Ricardo / Climate Council Ireland
+  url: 
+    https://www.climatecouncil.ie/councilpublications/councilworkingpaperseries/Ricardo%20-%20ED18904%20-%20Barriers%20to%20Industrial%20Heat%20Decarbonisation%20in%20Ireland%20Report_v1.2.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 
+    09_reference_reports/ricardo-barriers-industrial-heat-decarb-ireland.pdf
+  notes: >
+    Cross-jurisdiction equivalent of the UK material — useful for grounding
+    the agent's recognition of common barriers (cost, policy uncertainty,
+    complementary infra, stakeholder alignment). Three strategies framed:
+    energy efficiency (fewest barriers) → fuel switching → CCUS (most).
+
+  fetched_at: '2026-04-28T12:25:35.866509+00:00'
+  bytes: 1873673
+  sha256: 0f920ed555639a0ccdbbfb7cb17c60ca2d91d5df5b59b514ca50ed80210f5ab4
+- id: 09-frazer-nash-fugitive-h2
+  category: 09_reference_reports
+  title: "Frazer-Nash — Fugitive Hydrogen Emissions in a Future Hydrogen Economy (for
+    BEIS, Mar 2022)"
+  publisher: Frazer-Nash Consultancy (for BEIS / DESNZ)
+  url: 
+    https://assets.publishing.service.gov.uk/media/624ec79cd3bf7f600d4055d1/fugitive-hydrogen-emissions-future-hydrogen-economy.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 09_reference_reports/frazer-nash-fugitive-h2-2022.pdf
+  notes: >
+    The most prominent public FN deliverable on the H2 economy. Useful as
+    one example of consultancy-grade output structure (and your old firm).
+    For full FN feasibility-study examples, ask FN ex-colleagues for any
+    OGL-licenced redacted reports.
+
+  fetched_at: '2026-04-28T12:25:37.103469+00:00'
+  bytes: 1134622
+  sha256: 914b77a2600d93302abe97cd82f2351e280c50442ee9ff746c4161594c8255f6
+- id: 09-idric-frontiers-industrial-heat
+  category: 09_reference_reports
+  title: "IDRIC Frontiers Report — Industrial Heat and Energy Efficiency"
+  publisher: Industrial Decarbonisation Research and Innovation Centre (IDRIC)
+  url: 
+    https://idric.org/wp-content/uploads/IDRIC-Frontiers-Report-Industrial-Heat-and-Energy-Efficiency.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 09_reference_reports/idric-frontiers-industrial-heat.pdf
+  notes: >
+    Independent UK academic centre — cross-sector heat decarbonisation
+    research synthesis.
+
+  fetched_at: '2026-04-28T12:25:38.424265+00:00'
+  bytes: 3107704
+  sha256: 8776cdc93be94969fb616a8c80b56e29aa41cd2598fe54e676fe49467c17a4a0
+- id: 09-fcarchitects-decarbonizing-high-temp-heat
+  category: 09_reference_reports
+  title: "Future Cleantech Architects — Technical Report on Decarbonizing High-Temperature
+    Heat in Industry (Oct 2024)"
+  publisher: Future Cleantech Architects
+  url: 
+    https://fcarchitects.org/wp-content/uploads/2024/10/FCA-Report-Decarbonizing-High-Temperature-Heat.pdf
+  licence: open-access
+  status: downloaded
+  local_path: 09_reference_reports/fca-decarbonizing-high-temp-heat-2024.pdf
+  notes: >
+    Recent (Oct 2024) tech-stack-by-temperature-band synthesis. Useful
+    complement to BREF and Element Energy material — particularly clear
+    on >300°C heat where steam electrification is harder.
+
+  fetched_at: '2026-04-28T12:25:40.104054+00:00'
+  bytes: 4303139
+  sha256: 8aab94bc622494754a308316af93b2f027e1df321a0f208d757744179d00a4b7
+- id: 09-wsp-2050-industrial-decarb-roadmaps-page
+  category: 09_reference_reports
+  title: "WSP — 2050 Industrial Decarbonisation Roadmaps (project page)"
+  publisher: WSP
+  url: 
+    https://www.wsp.com/en-gb/projects/2050-industrial-decarbonisation-roadmaps
+  licence: open-access
+  status: blocked
+  local_path: 09_reference_reports/wsp-2050-roadmaps-page.html
+  notes: >-
+    HTTP 403: 403 Client Error: Forbidden for url: https://www.wsp.com/en-gb/projects/2050-industrial-decarbonisation-roadmaps
+
+# Section 3 — Engineering standards (target: 12, free alternatives)  [TBD]
+# Section 4 — Heat pump / electrification datasheets (target: 15)  [TBD]
+# Section 5 — Public worked case studies (target: 15)  [TBD]
+# Section 6 — Food & drink sector knowledge (target: 10)  [TBD]
+# Section 7 — Pinch analysis (target: 8)  [TBD]
+# Section 8 — Techno-economic methodology (target: 5)  [TBD]
+# Section 9 — Reference consultancy reports (target: 5)  [TBD]
+# =========================================================================
+- id: 02-hpbm-publication-hub-lcha-key-terms-summary-explanatory-notes
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    lcha-key-terms-summary-explanatory-notes-har1-december-2025.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/693941eb7a605b2d61cd9014/lcha-key-terms-summary-explanatory-notes-har1-december-2025.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/lcha-key-terms-summary-explanatory-notes-har1-december-2025.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:23.791536+00:00'
+  bytes: 653210
+  sha256: 961000398908e15ed5f196426e10ce0371a3fcb1d092877355e8d84a7071fcf1
+- id: 02-hpbm-publication-hub-LCHA-summary-document-december-2024
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    LCHA-summary-document-december-2024.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/67ab5d86d41dfb0b59cec493/LCHA-summary-document-december-2024.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/LCHA-summary-document-december-2024.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:23.858729+00:00'
+  bytes: 703834
+  sha256: 8ebcfeb96208a69772ba88704e8f540f0d591083cdcc9127762c1ac942ad8a43
+- id: 02-hpbm-publication-hub-LCHA-standard-terms-and-conditions-decem
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    LCHA-standard-terms-and-conditions-december-2024.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/67ab35555d27cee6cccec461/LCHA-standard-terms-and-conditions-december-2024.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/LCHA-standard-terms-and-conditions-december-2024.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:24.468806+00:00'
+  bytes: 6246306
+  sha256: 1c8d0f7d52b1acbb03ec746722c99f5fdd2de8ba107e2ac0b07f4aabb166dae3
+- id: 02-hpbm-publication-hub-LCHA-front-end-agreement-december-2024
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    LCHA-front-end-agreement-december-2024.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/67ab3797a270d8f9e7ed88df/LCHA-front-end-agreement-december-2024.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 02_uk_regulatory/LCHA-front-end-agreement-december-2024.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:24.687231+00:00'
+  bytes: 339661
+  sha256: d437a40d3f25a8162ed50e177ff3dcec9da5faf76bc026e23831c3f32cdd375e
+- id: 02-hpbm-publication-hub-low-carbon-hydrogen-agreement-standard-t
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    low-carbon-hydrogen-agreement-standard-terms-and-conditions.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/64d380559865ab000dc8fad6/low-carbon-hydrogen-agreement-standard-terms-and-conditions.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/low-carbon-hydrogen-agreement-standard-terms-and-conditions.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:25.280427+00:00'
+  bytes: 6765002
+  sha256: ff98e61165085ab5894064b20e3dc61f854d7a714975a2dadc902af48a9bba46
+- id: 02-hpbm-publication-hub-low-carbon-hydrogen-agreement-front-end-
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    low-carbon-hydrogen-agreement-front-end-agreement.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/64d3806e5cac650014c2dcab/low-carbon-hydrogen-agreement-front-end-agreement.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/low-carbon-hydrogen-agreement-front-end-agreement.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:25.559481+00:00'
+  bytes: 350083
+  sha256: d73f3063243771d112a9d4a137ebe9ba802b9a2816f8109ee2f56d240760b204
+- id: 
+    02-hpbm-publication-hub-Low_Carbon_Hydrogen_Production_Business_Model_Heads_of_Terms
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    Low_Carbon_Hydrogen_Production_Business_Model_Heads_of_Terms.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/639c470f8fa8f5069707c0fe/Low_Carbon_Hydrogen_Production_Business_Model_Heads_of_Terms.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/Low_Carbon_Hydrogen_Production_Business_Model_Heads_of_Terms.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:25.775260+00:00'
+  bytes: 1015494
+  sha256: 94a2fa2f19145a7ec907bf4763438a7fdd25c197de09815ae4b717e66d6efeb3
+- id: 
+    02-hpbm-publication-hub-Low_Carbon_Hydrogen_Production_Business_Model_HoTs-94c62827
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    Low_Carbon_Hydrogen_Production_Business_Model_HoTs_comparison_with_the_indicative_HoTs_published_in_April_2022.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/639c48cdd3bf7f7f8b18a68a/Low_Carbon_Hydrogen_Production_Business_Model_HoTs_comparison_with_the_indicative_HoTs_published_in_April_2022.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/Low_Carbon_Hydrogen_Production_Business_Model_HoTs_comparison_with_the_indicative_HoTs_published_in_April_2022.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:26.095559+00:00'
+  bytes: 1720209
+  sha256: dc600901e5c14b54fcf9cb5565304f3cee45d35cdcc54690d655926ef27da49c
+- id: 
+    02-hpbm-publication-hub-Low_Carbon_Hydrogen_Production_Business_Model_full-569d1aba
+  category: 02_uk_regulatory
+  title: (Hub expansion from 02-hpbm-publication-hub) 
+    Low_Carbon_Hydrogen_Production_Business_Model_full_contract_drafting_of_the_payment_mechanism.pdf
+  publisher: DESNZ
+  url: 
+    https://assets.publishing.service.gov.uk/media/639c4735e90e072186e18052/Low_Carbon_Hydrogen_Production_Business_Model_full_contract_drafting_of_the_payment_mechanism.pdf
+  licence: ogl-v3
+  status: downloaded
+  local_path: 
+    02_uk_regulatory/Low_Carbon_Hydrogen_Production_Business_Model_full_contract_drafting_of_the_payment_mechanism.pdf
+  notes: Auto-downloaded from 02-hpbm-publication-hub hub page
+  fetched_at: '2026-04-28T12:21:26.329431+00:00'
+  bytes: 568640
+  sha256: ce4e8f7cb14f36dea868ed37169666bf75e88d85e45909d72e800ec370d82088

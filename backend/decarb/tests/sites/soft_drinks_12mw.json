@@ -1,0 +1,110 @@
+{
+  "site_id": "GOLDEN_SOFTDRINKS_12MW",
+  "site_name": "Midlands Beverage Plant (synthetic)",
+  "sector": "food_drink",
+  "subsector": "soft_drinks_bottling",
+  "location": {
+    "city": "Coventry",
+    "country": "UK",
+    "latitude": 52.41,
+    "longitude": -1.51
+  },
+  "operations": {
+    "annual_production_hectolitres": 3800000,
+    "shifts_per_day": 3,
+    "operating_days_per_year": 360,
+    "annual_operating_hours": 8400
+  },
+  "energy_use": {
+    "electricity_kwh_year": 26000000,
+    "natural_gas_kwh_year": 78000000,
+    "fuel_oil_litres_year": 0,
+    "biomass_kwh_year": 0
+  },
+  "process_heat": {
+    "steam": {
+      "pressure_barg": 5,
+      "saturation_temp_c": 158,
+      "annual_demand_kwh": 36000000,
+      "load_profile": "near_continuous_pasteurisation_and_PET_blow_moulding"
+    },
+    "hot_water": {
+      "supply_temp_c": 65,
+      "annual_demand_kwh": 18000000,
+      "load_profile": "constant_24_5"
+    },
+    "process_cooling": {
+      "supply_temp_c": 1,
+      "annual_demand_kwh": 22000000,
+      "load_profile": "constant_with_summer_peaks"
+    }
+  },
+  "existing_plant": {
+    "boilers": [
+      {"type": "natural_gas_steam", "capacity_mw": 9.0, "age_years": 6, "efficiency_seasonal": 0.88},
+      {"type": "natural_gas_steam_backup", "capacity_mw": 6.0, "age_years": 14, "efficiency_seasonal": 0.81}
+    ],
+    "chillers": [
+      {"type": "ammonia_compression", "capacity_mw": 6.5, "age_years": 4, "scop": 4.2},
+      {"type": "ammonia_compression", "capacity_mw": 4.0, "age_years": 9, "scop": 3.8}
+    ],
+    "heat_recovery_existing": "compressor jacket water → light pre-heating only; major waste heat opportunity unexploited"
+  },
+  "constraints": {
+    "capex_budget_gbp": 12000000,
+    "planning_horizon_years": 15,
+    "discount_rate_real": 0.08,
+    "must_keep_steam_backup": true,
+    "no_hydrogen": true,
+    "no_biomass": true,
+    "space_envelope_m2_for_new_plant": 700,
+    "site_grid_connection_mva": 12.0,
+    "site_grid_headroom_mva": 3.5
+  },
+  "regulatory": {
+    "in_uk_ets": false,
+    "secr_reportable": true,
+    "cca_subsector": "soft_drinks",
+    "cbam_exposed": false
+  },
+  "_golden_truth": {
+    "_note": "Hand-calculated reference answers. Used by eval harness.",
+    "baseline_carbon_t_co2e_year": 19300,
+    "baseline_carbon_assumptions": "DEFRA 2026 natural gas factor 0.18293 kgCO2e/kWh; UK electricity factor 0.193 kgCO2e/kWh.",
+    "expected_shortlist_must_include": [
+      "industrial_heat_pump_low_temp_hot_water",
+      "industrial_heat_pump_med_temp_steam_make_up",
+      "electrode_boiler_steam",
+      "thermal_energy_storage_hot",
+      "waste_heat_recovery_chiller_to_HW_HUGE",
+      "compressed_air_heat_recovery",
+      "mechanical_vapour_recompression_MVR"
+    ],
+    "expected_shortlist_must_exclude_with_reason": {
+      "biomass_boiler": "explicitly excluded by client constraints",
+      "100pc_hydrogen_boiler": "explicitly excluded by client constraints"
+    },
+    "balanced_pathway_sketch": {
+      "year_1": "Massive waste heat recovery upgrade — chiller + compressor jacket → pre-heat all hot water (this alone displaces ~50% of HW gas demand)",
+      "year_1_2": "5 MW NH3 HP for hot water at 65°C — uses chiller waste heat as source",
+      "year_2_3": "3 MW medium-temp HP for steam pre-heat (saturated boiler feed water at 130°C)",
+      "year_3_4": "8 MW electrode boiler for steam balance + 25 MWh thermal store",
+      "year_4_plus": "Phased retirement of primary gas boiler; backup retained on standby"
+    },
+    "balanced_pathway_target_metrics": {
+      "scope_1_2_reduction_pct_year_5": "70-85%",
+      "scope_1_2_reduction_pct_year_15": "92-100%",
+      "lifetime_npv_gbp_min": 4000000,
+      "lifetime_npv_gbp_max": 11000000,
+      "simple_payback_years_min": 4,
+      "simple_payback_years_max": 8
+    },
+    "key_decisions_for_senior_review": [
+      "Waste heat recovery scale is unusually large for this site — confirm chiller load profile in summer and validate WHR capacity",
+      "5 barg steam is in HP-reachable range with high-temp HP + thermal vapour recompression — radical option worth analysing",
+      "PET blow-moulding heat demand profile dominates — agent must not double-count this against pasteurisation steam",
+      "Existing chillers are recent (age 4 and 9) — retrofit cascade-coupling is more economically attractive than chiller replacement",
+      "Sensitivity: chiller waste heat availability assumes existing chillers continue 24/7 — confirm under future production scenarios"
+    ]
+  }
+}
