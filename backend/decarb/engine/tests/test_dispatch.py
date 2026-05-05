@@ -1,18 +1,26 @@
 """Tests for dispatch.simulate_site_dispatch against the 3 golden sites.
 
-Golden test fixture (dairy_5mw):
-  Technology stack mirrors the techno-economic sweet-spot for a UK dairy:
-    - 2 MW NH3 heat pump (waste-heat source at 35°C — existing chiller condenser)
-      COP ~4.15 (CoolProp), SRMC = 18/4.15 = 4.34p < gas SRMC 5.29p → HP wins on merit
-    - 4 MW electrode boiler (EB beats gas off-peak: 5.05p < 5.29p)
-    - 8 MWh thermal storage (buffer / off-peak charging)
-    - 10 MW retained gas backup (matches actual site: 6 MW primary + 4 MW backup)
+Golden test fixture (dairy_5mw) — physically honest:
+  Technology stack respects the 5 K LMTD margin between HP sink and end-use
+  supply temperature (steam 175°C, hot_water 85°C, cooling 2°C). A 75°C-sink
+  HP cannot serve 175°C steam — that fiction was the old fixture's flaw and
+  is now caught by the dispatch sink-temperature guard.
+
+    - 1 MW NH3 heat pump, waste-heat source 35°C → 90°C sink, serves ['hot_water']
+      (90°C ≥ 85°C + 5 K LMTD). COP_net ~3.09 at this lift (CoolProp).
+    - 4 MW electrode boiler, serves ['steam'] (175°C achievable for any electric
+      resistance heater; SRMC 5.05 p/kWh off-peak vs gas 5.29 p/kWh → wins off-peak).
+    - 8 MWh thermal storage, serves ['steam','hot_water'] (off-peak charging).
+    - 10 MW retained gas backup, serves ['steam','hot_water'] (matches site:
+      6 MW primary + 4 MW backup).
   Policy: merit_order (default) — cost-first dispatch.
 
-Note on gas displacement:
-  Under merit_order with this stack, the dairy achieves ~40-50% gas displacement.
-  Achieving 60-75% requires larger electrification capacity or carbon_minimal policy.
-  The tests here validate ACTUAL dispatch behaviour rather than aspirational targets.
+Honest gas-displacement expectation:
+  Under merit_order with this stack, hot-water demand (~7 GWh/yr) is fully
+  HP-served, steam (28 GWh/yr) is EB off-peak + gas peak. Gas displacement
+  drops vs the old fixture's headline ~44% to a more honest ~15–30% — the
+  difference quantifies how much credit the previous fixture took for
+  thermodynamically infeasible HP→steam attribution.
 """
 from __future__ import annotations
 
@@ -29,32 +37,38 @@ from decarb.engine.dispatch import simulate_site_dispatch
 
 def _make_stack(gas_cap_kw: float = 10_000) -> list[dict]:
     """
-    Standard electrification stack used in all dispatch golden tests.
+    Canonical, thermodynamically honest electrification stack.
 
-    HP: NH3 waste-heat-source (existing chiller condenser at 35°C),
-        2 MW, 75°C sink. COP ~4.15 — beats gas on merit at any electricity rate.
-    EB: 4 MW resistive, 99% efficiency. Beats gas off-peak only (5.05p < 5.29p).
+    HP: NH3 waste-heat-source 35°C, **90°C sink, serves only hot_water**
+        (90°C ≥ 85°C + 5 K LMTD margin per CIBSE AM17 / BS EN 14825).
+        Capacity 1 MW thermal — covers the ~800 kW average hot-water load
+        with TES smoothing and HP runs ~24/7.
+    EB: 4 MW resistive, 99% efficiency. Steam-only.
     TES: 8 MWh sensible-heat tank, 92% round-trip, 0.05%/hr standing loss.
-    Gas: retained backup at user-specified capacity and 85% efficiency.
+    Gas: retained backup, gas_cap_kw, 85% efficiency.
+
+    The previous fixture (HP sink=75°C, serves both steam+hot_water) was
+    rejected by the dispatch sink-temperature guard for crediting the HP
+    with 175°C steam delivery it could not physically produce.
     """
     return [
         {
             "type": "heat_pump",
             "id": "hp_1",
-            "capacity_kw_thermal": 2000,
+            "capacity_kw_thermal": 1000,
             "refrigerant": "Ammonia",
             "compressor_type": "screw",
             "source_type": "waste_heat",
-            "source_temp_c": 35.0,          # existing NH3 chiller condenser
-            "sink_temp_c": 75.0,
-            "serves_end_uses": ["steam", "hot_water"],
+            "source_temp_c": 35.0,           # existing NH3 chiller condenser
+            "sink_temp_c": 90.0,             # ≥ hot_water 85°C + 5 K LMTD margin
+            "serves_end_uses": ["hot_water"],
         },
         {
             "type": "electrode_boiler",
             "id": "eb_1",
             "capacity_kw": 4000,
             "efficiency": 0.99,
-            "serves_end_uses": ["steam", "hot_water"],
+            "serves_end_uses": ["steam"],
         },
         {
             "type": "thermal_storage",
@@ -140,15 +154,19 @@ class TestDairyDispatch:
 
     def test_gas_displacement_achieves_minimum(self, dairy_result):
         """
-        HP (always on, charging TES) + EB (off-peak) should achieve at least
-        35% gas displacement vs the 38 GWh/yr gas baseline.
+        HP serves hot_water only (~7 GWh/yr) under the honest canonical stack;
+        EB picks up steam off-peak. Under merit_order, gas displacement lands
+        in the 20–35% band — lower than the previous fixture's 35–55% headline,
+        because the old fixture credited the 75°C-sink HP with 175°C steam
+        delivery (rejected by the v0.2 sink-temperature guard).
 
-        Upper bound 55%: displacement > 55% under pure merit_order requires
-        a larger stack — a higher result would indicate a dispatch logic error.
+        Upper bound 35%: displacement > 35% under pure merit_order with this
+        stack would suggest the EB is dispatching during peak, which the
+        EB-offpeak test would also catch.
         """
         disp = dairy_result["annual_summary"]["gas_displacement_pct"]
-        assert 35 <= disp <= 55, (
-            f"Gas displacement {disp:.1f}% outside expected range 35–55% for merit_order"
+        assert 20 <= disp <= 35, (
+            f"Gas displacement {disp:.1f}% outside expected range 20–35% for merit_order"
         )
 
     def test_hp_runtime_over_6000_hours(self, dairy_result):
@@ -243,18 +261,18 @@ class TestDairyDispatch:
         assert not missing, f"Missing output keys: {missing}"
 
     def test_hp_weighted_cop_meets_canonical(self, dairy_result):
-        """HP weighted COP under canonical merit_order dispatch must clear
-        3.8 — close to the calculate_hp_cycle reference (4.0-4.5) at the
-        fixed 35°C waste-heat source. Drops below this if dispatch silently
-        falls through to ambient_air mode (which produced the 2.4 regression
-        before the strict source_type guard)."""
+        """HP weighted COP under canonical merit_order dispatch must land
+        in the 35→90°C NH3-screw band. CoolProp gives COP_net ≈ 3.09 at
+        this lift; allow 2.95–3.25 to absorb minor part-load / ambient
+        smearing. Drops below this if dispatch silently routes the waste-
+        heat HP to ambient_air mode (the regression that produced 2.4)."""
         hp = next(
             u for u in dairy_result["equipment_utilisation"]
             if u["tech_type"] == "heat_pump"
         )
-        assert hp["weighted_cop"] >= 3.8, (
-            f"HP weighted_cop {hp['weighted_cop']} below 3.8 — "
-            "dispatch may have routed waste-heat HP to ambient_air mode."
+        assert 2.95 <= hp["weighted_cop"] <= 3.25, (
+            f"HP weighted_cop {hp['weighted_cop']} outside 2.95–3.25 band "
+            "for canonical NH3 35→90°C screw — investigate."
         )
 
 
@@ -314,6 +332,209 @@ class TestDispatchStatus:
             year=2026,
         )
         assert "unmet_demand_pct" in result["energy_balance"]
+
+
+class TestUnmetDemandAggregation:
+    """B3: per-hour unmet_demand warnings are aggregated into a single
+    summary at module exit. Multiple hours of deficit must produce exactly
+    ONE warning entry with code='unmet_demand' carrying total_unmet_kwh,
+    n_unmet_hours, peak_unmet_kw, representative_hours fields."""
+
+    def test_undersized_stack_emits_single_aggregated_warning(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=200),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        unmet_warnings = [
+            w for w in result["warnings"] if w.get("code") == "unmet_demand"
+        ]
+        assert len(unmet_warnings) == 1, (
+            f"expected exactly 1 aggregated unmet_demand warning, got "
+            f"{len(unmet_warnings)} — per-hour spam was not aggregated"
+        )
+        w = unmet_warnings[0]
+        assert w["severity"] == "high"
+        assert w["n_unmet_hours"] > 1, (
+            "test fixture should produce many unmet hours"
+        )
+        assert w["total_unmet_kwh"] > 0
+        assert w["peak_unmet_kw"] > 0
+        assert isinstance(w["representative_hours"], list)
+        assert 1 <= len(w["representative_hours"]) <= 3
+        # Message text must summarise rather than enumerate.
+        msg = w["message"]
+        assert "across" in msg
+        assert "peaking" in msg
+        assert "representative hours" in msg
+
+    def test_balanced_stack_emits_no_unmet_warning(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=10_000),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        unmet_warnings = [
+            w for w in result["warnings"] if w.get("code") == "unmet_demand"
+        ]
+        assert unmet_warnings == [], (
+            "BALANCED dispatch must not emit any unmet_demand warning"
+        )
+
+
+class TestSinkTemperatureGuard:
+    """The dispatch must refuse to credit a HP with end-use duty it cannot
+    physically deliver: HP.sink_temp_c must clear (end_use.temperature_c +
+    5 K LMTD margin) for every end-use in serves_end_uses. Violations are
+    high-severity warnings and the offending end-uses are stripped from the
+    HP's effective serves list."""
+
+    def _stack_with_hp_serving_steam_at_75c_sink(self) -> list[dict]:
+        """A HP at sink=75°C declaring it serves steam (175°C) — physically
+        impossible. This is the configuration the old `_make_stack` used."""
+        return [
+            {
+                "type": "heat_pump",
+                "id": "hp_misconfigured",
+                "capacity_kw_thermal": 2000,
+                "refrigerant": "Ammonia",
+                "compressor_type": "screw",
+                "source_type": "waste_heat",
+                "source_temp_c": 35.0,
+                "sink_temp_c": 75.0,
+                "serves_end_uses": ["steam", "hot_water"],
+            },
+            {
+                "type": "electrode_boiler", "id": "eb_1",
+                "capacity_kw": 4000, "efficiency": 0.99,
+                "serves_end_uses": ["steam", "hot_water"],
+            },
+            {
+                "type": "gas_boiler", "id": "gas_1",
+                "capacity_kw": 10_000, "efficiency": 0.85,
+                "serves_end_uses": ["steam", "hot_water"],
+            },
+        ]
+
+    def test_misconfigured_hp_raises_high_severity_warning(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        stack = self._stack_with_hp_serving_steam_at_75c_sink()
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=stack,
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        warnings = result["warnings"]
+        sink_warnings = [
+            w for w in warnings if w.get("code") == "hp_sink_too_cold_for_end_use"
+        ]
+        assert len(sink_warnings) == 1, (
+            f"expected 1 hp_sink_too_cold_for_end_use warning, got {len(sink_warnings)}"
+        )
+        assert sink_warnings[0]["severity"] == "high"
+        # Both steam (needs ≥180°C sink) and hot_water (needs ≥90°C sink)
+        # exceed the 75°C sink — both must be named in the message.
+        msg = sink_warnings[0]["message"]
+        assert "steam" in msg
+        assert "hot_water" in msg
+
+    def test_misconfigured_hp_becomes_inactive(self, dairy_5mw):
+        """Both serves_end_uses are infeasible → HP is fully inactive.
+        Equipment utilisation reports zero output and the inactive warning
+        fires."""
+        parsed = parse_energy_profile(dairy_5mw)
+        stack = self._stack_with_hp_serving_steam_at_75c_sink()
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=stack,
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        hp = next(
+            u for u in result["equipment_utilisation"]
+            if u["tech_type"] == "heat_pump"
+        )
+        assert hp["annual_thermal_output_kwh"] == 0.0
+        assert hp["annual_electrical_input_kwh"] == 0.0
+        inactive_warnings = [
+            w for w in result["warnings"]
+            if w.get("code") == "hp_inactive_no_compatible_end_use"
+        ]
+        assert len(inactive_warnings) == 1
+        assert inactive_warnings[0]["severity"] == "high"
+
+    def test_partial_infeasibility_keeps_hp_active(self, dairy_5mw):
+        """HP at 90°C sink declares it serves [steam, hot_water]. Steam
+        (175°C) is rejected; hot_water (85°C) is fine. HP runs serving
+        hot_water; warning fires for the steam strip."""
+        parsed = parse_energy_profile(dairy_5mw)
+        stack = [
+            {
+                "type": "heat_pump", "id": "hp_partial",
+                "capacity_kw_thermal": 1000,
+                "refrigerant": "Ammonia", "compressor_type": "screw",
+                "source_type": "waste_heat",
+                "source_temp_c": 35.0,
+                "sink_temp_c": 90.0,                       # OK for hot_water, not steam
+                "serves_end_uses": ["steam", "hot_water"],
+            },
+            {
+                "type": "electrode_boiler", "id": "eb_1",
+                "capacity_kw": 4000, "efficiency": 0.99,
+                "serves_end_uses": ["steam"],
+            },
+            {
+                "type": "gas_boiler", "id": "gas_1",
+                "capacity_kw": 10_000, "efficiency": 0.85,
+                "serves_end_uses": ["steam", "hot_water"],
+            },
+        ]
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=stack,
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        sink_warnings = [
+            w for w in result["warnings"]
+            if w.get("code") == "hp_sink_too_cold_for_end_use"
+        ]
+        assert len(sink_warnings) == 1
+        assert "steam" in sink_warnings[0]["message"]
+        assert "hot_water" not in sink_warnings[0]["message"]
+        # HP must still run on hot_water duty.
+        hp = next(
+            u for u in result["equipment_utilisation"]
+            if u["tech_type"] == "heat_pump"
+        )
+        assert hp["annual_thermal_output_kwh"] > 0
+        # And the inactive warning must NOT fire.
+        inactive_warnings = [
+            w for w in result["warnings"]
+            if w.get("code") == "hp_inactive_no_compatible_end_use"
+        ]
+        assert inactive_warnings == []
+
+    def test_canonical_stack_no_sink_warnings(self, dairy_5mw):
+        """Honest canonical fixture must not trip the guard."""
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=10_000),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        sink_warnings = [
+            w for w in result["warnings"]
+            if w.get("code")
+            in ("hp_sink_too_cold_for_end_use", "hp_inactive_no_compatible_end_use")
+        ]
+        assert sink_warnings == []
 
 
 class TestSourceTypeStrictness:

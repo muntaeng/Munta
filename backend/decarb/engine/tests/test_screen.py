@@ -40,6 +40,19 @@ def _shortlist_ids(result: dict) -> set[str]:
     return {t["tech_id"] for t in result["shortlist"]}
 
 
+def _pending_grid_ids(result: dict) -> set[str]:
+    return {t["tech_id"] for t in result.get("excluded_pending_grid_decision", [])}
+
+
+def _actionable_ids(result: dict) -> set[str]:
+    """Shortlist + pending-grid-decision: the union of tech the screen has
+    not vetoed. Pending-grid items are not yet shortlisted but have not been
+    excluded on infeasibility grounds — a senior DNO decision moves them
+    into the shortlist proper. Golden-truth `must_include` lists predate
+    the v0.2 grid filter and assert membership in this union."""
+    return _shortlist_ids(result) | _pending_grid_ids(result)
+
+
 def _excluded_ids(result: dict) -> set[str]:
     return {t["tech_id"] for t in result["excluded"]}
 
@@ -84,19 +97,26 @@ class TestDairyScreen:
         )
 
     def test_dairy_shortlist_includes_hp_high_temp(self, dairy_result, dairy_5mw):
-        """HP high-temp must be shortlisted: dairy steam at 175°C → high-temp tier."""
+        """HP high-temp must be either shortlisted or in the pending-grid
+        decision register: dairy steam at 175°C → high-temp tier, but the
+        site's 1 MVA headroom against ~1.7 MW estimated electrical demand
+        triggers the v0.2 grid filter. Either landing satisfies golden truth."""
         must_include = dairy_5mw["_golden_truth"]["expected_shortlist_must_include"]
         assert "industrial_heat_pump_high_temp" in must_include
-        assert "industrial_heat_pump_high_temp" in _shortlist_ids(dairy_result), (
-            "industrial_heat_pump_high_temp missing from dairy shortlist"
+        assert "industrial_heat_pump_high_temp" in _actionable_ids(dairy_result), (
+            "industrial_heat_pump_high_temp missing from both shortlist and "
+            "excluded_pending_grid_decision"
         )
 
     def test_dairy_shortlist_includes_electrode_boiler(self, dairy_result, dairy_5mw):
-        """Electrode boiler must be shortlisted for all steam-bearing sites."""
+        """Electrode boiler must be actionable (shortlist or pending grid)
+        for all steam-bearing sites. At dairy_5mw the 4-5 MW electrical
+        demand exceeds 1.5× the 1 MVA headroom — pending grid decision."""
         must_include = dairy_5mw["_golden_truth"]["expected_shortlist_must_include"]
         assert "electrode_boiler_steam" in must_include
-        assert "electrode_boiler_steam" in _shortlist_ids(dairy_result), (
-            "electrode_boiler_steam missing from dairy shortlist"
+        assert "electrode_boiler_steam" in _actionable_ids(dairy_result), (
+            "electrode_boiler_steam missing from both shortlist and "
+            "excluded_pending_grid_decision"
         )
 
     def test_dairy_shortlist_includes_whr_chiller(self, dairy_result, dairy_5mw):
@@ -116,13 +136,36 @@ class TestDairyScreen:
         )
 
     def test_dairy_shortlist_includes_all_golden_truth(self, dairy_result, dairy_5mw):
-        """All IDs in expected_shortlist_must_include are present — single consolidated test."""
+        """Every golden-truth must_include tech is at least actionable
+        (shortlist or pending grid decision)."""
         must_include = dairy_5mw["_golden_truth"]["expected_shortlist_must_include"]
-        missing = set(must_include) - _shortlist_ids(dairy_result)
+        missing = set(must_include) - _actionable_ids(dairy_result)
         assert not missing, (
-            f"Dairy shortlist missing golden-truth technologies: {missing}\n"
-            f"Actual shortlist: {_shortlist_ids(dairy_result)}"
+            f"Dairy actionable set missing golden-truth technologies: {missing}\n"
+            f"Shortlist: {_shortlist_ids(dairy_result)}\n"
+            f"Pending grid: {_pending_grid_ids(dairy_result)}"
         )
+
+    def test_dairy_high_demand_tech_in_pending_grid_register(self, dairy_result):
+        """B1: high_temp HP and electrode_boiler_steam exceed 1.5× headroom
+        at the dairy site (1 MVA headroom). They must NOT appear in the
+        shortlist — they belong in excluded_pending_grid_decision so a
+        senior reviewer makes the DNO call before the agent recommends them."""
+        pending = _pending_grid_ids(dairy_result)
+        shortlist = _shortlist_ids(dairy_result)
+        assert "industrial_heat_pump_high_temp" in pending, (
+            "high_temp HP must move to pending_grid_decision under 1.5× rule"
+        )
+        assert "electrode_boiler_steam" in pending, (
+            "electrode_boiler_steam must move to pending_grid_decision under 1.5× rule"
+        )
+        assert "industrial_heat_pump_high_temp" not in shortlist
+        assert "electrode_boiler_steam" not in shortlist
+        # Each pending entry must carry the reason code and a non-trivial
+        # rationale citing the headroom math.
+        for entry in dairy_result["excluded_pending_grid_decision"]:
+            assert entry.get("pending_reason_code"), entry
+            assert "headroom" in entry.get("reason", "").lower()
 
     # --- exclusions (from _golden_truth) ---
 
@@ -235,10 +278,11 @@ class TestBreweryScreen:
 
     def test_brewery_shortlist_includes_all_golden_truth(self, brewery_result, brewery_8mw):
         must_include = brewery_8mw["_golden_truth"]["expected_shortlist_must_include"]
-        missing = set(must_include) - _shortlist_ids(brewery_result)
+        missing = set(must_include) - _actionable_ids(brewery_result)
         assert not missing, (
-            f"Brewery shortlist missing golden-truth technologies: {missing}\n"
-            f"Actual shortlist: {_shortlist_ids(brewery_result)}"
+            f"Brewery actionable set missing golden-truth technologies: {missing}\n"
+            f"Shortlist: {_shortlist_ids(brewery_result)}\n"
+            f"Pending grid: {_pending_grid_ids(brewery_result)}"
         )
 
     def test_brewery_biomass_excluded_on_contamination(self, brewery_result, brewery_8mw):
@@ -303,10 +347,11 @@ class TestSoftDrinksScreen:
 
     def test_softdrinks_shortlist_includes_all_golden_truth(self, sd_result, soft_drinks_12mw):
         must_include = soft_drinks_12mw["_golden_truth"]["expected_shortlist_must_include"]
-        missing = set(must_include) - _shortlist_ids(sd_result)
+        missing = set(must_include) - _actionable_ids(sd_result)
         assert not missing, (
-            f"Soft drinks shortlist missing golden-truth technologies: {missing}\n"
-            f"Actual shortlist: {_shortlist_ids(sd_result)}"
+            f"Soft drinks actionable set missing golden-truth technologies: {missing}\n"
+            f"Shortlist: {_shortlist_ids(sd_result)}\n"
+            f"Pending grid: {_pending_grid_ids(sd_result)}"
         )
 
     def test_softdrinks_biomass_excluded_on_client_constraint(self, sd_result, soft_drinks_12mw):

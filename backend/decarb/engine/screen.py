@@ -524,11 +524,17 @@ def _check_process_compatibility(
 
 def _check_grid_and_infrastructure(
     tech: dict, site_brief: dict
-) -> tuple[bool, str, str]:
+) -> tuple[bool, str, str, str]:
     """
     Axis 5: Grid connection headroom + fuel-supply infrastructure.
 
-    Returns (pass, rationale_or_reason, failed_axis_code).
+    Returns (pass, rationale_or_reason, failed_axis_code, pending_grid_reason).
+    pending_grid_reason is non-empty only when the technology is
+    thermodynamically and commercially feasible but its electrical demand
+    exceeds the maximum DNO-quotable headroom multiplier (1.5×) — i.e. a
+    DNO reinforcement decision must precede shortlisting. Such tech is
+    moved to a separate `excluded_pending_grid_decision` register rather
+    than being shortlisted with a buried risk bullet.
     """
     tech_id = tech.get("id", "")
     cat = tech.get("category", "")
@@ -563,6 +569,7 @@ def _check_grid_and_infrastructure(
                 f"Technology to be reassessed when H2 network is confirmed for this location. "
                 f"Reference: DESNZ H2 Production & Delivery Infrastructure Report 2024.",
                 "fuel_infrastructure",
+                "",
             )
 
     # ---- Grid headroom check for electrical technologies ----
@@ -584,16 +591,25 @@ def _check_grid_and_infrastructure(
         utilisation = approx_elec_kw / max(headroom_kw, 1)
 
         if utilisation > 1.5:
+            # Demand exceeds 1.5× headroom — beyond the upper bound a DNO
+            # will quote for in a routine connection offer. Structural
+            # reinforcement is required and the decision is not the kind
+            # an automated screen should make on its own. Move to the
+            # senior-decision register, do NOT shortlist.
             return (
-                True,  # still passes — grid upgrade is an option, not an absolute barrier
+                False,
                 (
-                    f"Grid headroom warning: estimated electrical demand {approx_elec_kw:.0f} kW "
-                    f"vs available headroom {headroom_kw:.0f} kW ({utilisation:.1%} utilisation). "
-                    f"G99 connection application and DNO reinforcement likely required. "
-                    f"Flag for DNO pre-application discussion; typical timeline 12–18 months, "
-                    f"cost £50k–£500k. Not an absolute barrier but requires early engagement."
+                    f"Estimated electrical demand {approx_elec_kw:.0f} kW exceeds "
+                    f"1.5× available headroom ({headroom_kw:.0f} kW; "
+                    f"{utilisation:.1%} utilisation). Beyond the typical envelope "
+                    "a UK DNO will quote without structural reinforcement. "
+                    "Pending senior decision on (a) DNO reinforcement (£50k–£500k, "
+                    "12–24 month timeline) versus (b) capacity-staged deployment "
+                    "or (c) alternative technology mix. Reference: ENA Engineering "
+                    "Recommendation G99 §B.4."
                 ),
-                "",
+                "infeasible_grid",
+                "exceeds_max_dno_quotable_headroom_1.5x",
             )
         if utilisation > _GRID_HEADROOM_RATIO_WARN:
             return (
@@ -604,9 +620,10 @@ def _check_grid_and_infrastructure(
                     f"G99 notification likely required; confirm with DNO before detailed design."
                 ),
                 "",
+                "",
             )
 
-    return True, "Grid and infrastructure requirements within site capability", ""
+    return True, "Grid and infrastructure requirements within site capability", "", ""
 
 
 def _check_planning(tech: dict, site_brief: dict) -> tuple[bool, str]:
@@ -773,8 +790,21 @@ def _screen_single_tech(
             "failed_axis": proc_fail_code,
         }
 
-    # ---- Axis 5: grid & infrastructure (H2 infrastructure is hard stop) ----
-    grid_pass, grid_detail, grid_fail_code = _check_grid_and_infrastructure(tech, site_brief)
+    # ---- Axis 5: grid & infrastructure (H2 infrastructure is hard stop;
+    # grid-headroom > 1.5× routes to pending_grid_decision, not shortlist) ----
+    grid_pass, grid_detail, grid_fail_code, grid_pending_reason = (
+        _check_grid_and_infrastructure(tech, site_brief)
+    )
+    if not grid_pass and grid_pending_reason:
+        return {
+            "tech_id": tech_id,
+            "tech_name": tech_name,
+            "category": cat,
+            "status": "pending_grid_decision",
+            "reason": grid_detail,
+            "failed_axis": grid_fail_code,
+            "pending_reason_code": grid_pending_reason,
+        }
     if not grid_pass:
         return {
             "tech_id": tech_id,
@@ -926,13 +956,18 @@ def screen_technologies(
     # Screen each candidate
     shortlist: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
+    excluded_pending_grid_decision: list[dict[str, Any]] = []
 
     for tech in candidates:
         result = _screen_single_tech(tech, site_brief)
-        if result["status"] == "shortlist":
-            shortlist.append({k: v for k, v in result.items() if k != "status"})
+        status = result["status"]
+        entry = {k: v for k, v in result.items() if k != "status"}
+        if status == "shortlist":
+            shortlist.append(entry)
+        elif status == "pending_grid_decision":
+            excluded_pending_grid_decision.append(entry)
         else:
-            excluded.append({k: v for k, v in result.items() if k != "status"})
+            excluded.append(entry)
 
     # Warn if expected technologies are absent
     if not any(t["tech_id"].startswith("industrial_heat_pump") for t in shortlist):
@@ -948,10 +983,12 @@ def screen_technologies(
         "subsector": subsector,
         "shortlist": shortlist,
         "excluded": excluded,
+        "excluded_pending_grid_decision": excluded_pending_grid_decision,
         "borderline_notes": [],   # reserved for v0.1
         "candidate_count": len(candidates),
         "shortlist_count": len(shortlist),
         "excluded_count": len(excluded),
+        "excluded_pending_grid_decision_count": len(excluded_pending_grid_decision),
         "warnings": warnings_out,
         "method_reference": (
             "Technology screening per §5 of the engine spec. "
@@ -1035,10 +1072,12 @@ def _empty_result(warnings: list) -> dict[str, Any]:
         "subsector": "",
         "shortlist": [],
         "excluded": [],
+        "excluded_pending_grid_decision": [],
         "borderline_notes": [],
         "candidate_count": 0,
         "shortlist_count": 0,
         "excluded_count": 0,
+        "excluded_pending_grid_decision_count": 0,
         "warnings": warnings,
         "standards_cited": [],
         "method_reference": "No screening performed — empty site brief",

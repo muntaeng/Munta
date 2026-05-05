@@ -96,52 +96,100 @@ def compute_baseline_carbon(
         trajectory.append({"year": y, "scope_1_t_co2e": s1_t, "scope_2_t_co2e": s2_t, "total_t_co2e": round(s1_t + s2_t, 2)})
 
     # ---------- Regulatory exposure ----------
-    # UK ETS: large stationary combustion (>20 MW thermal) or specific activities
-    # Many food & drink and chemicals sites NOT in ETS but increasingly in expanded scope discussion
+    # All four registers are resolved against the site's declared state in
+    # the brief — no "If in..." templates leak to the renderer. Each `note`
+    # is a direct factual statement; auxiliary fields (allowance estimates,
+    # references) are populated where applicable.
+    if site_in_uk_ets:
+        ets_note = (
+            f"This site IS in UK ETS scope. Estimated allowance "
+            f"requirement {round(scope1['total_t_co2e'])} tCO2e/yr. Free "
+            f"allocation typically covers ~80% of historic emissions; the "
+            f"balance is bought at auction. Forward UK ETS price 2026 "
+            f"range: £60–90/tCO2e. Reference: UK ETS Operator's Guide."
+        )
+    else:
+        ets_note = (
+            "This site is NOT in UK ETS scope (combustion below the 20 MW "
+            "threshold and not in the regulated activities list). No ETS "
+            "allowance liability. Monitor scope expansion proposals "
+            "(DESNZ consultations 2024–25) — stationary combustion above "
+            "10 MW has been floated for inclusion."
+        )
     ets_assessment = {
         "in_uk_ets": site_in_uk_ets,
-        "ets_allowance_estimate_t_co2e": scope1["total_t_co2e"] if site_in_uk_ets else 0,
-        "note": (
-            "If in UK ETS, free allocation typically covers ~80% of historic emissions; "
-            "balance bought at auction. Forward UK ETS price ~£60-90/t (2026). "
-            "Confirm scope via UK ETS Operator's Guide."
+        "ets_allowance_estimate_t_co2e": (
+            scope1["total_t_co2e"] if site_in_uk_ets else 0
         ),
+        "note": ets_note,
     }
 
-    # SECR: applies to large companies + quoted companies + LLPs
+    if site_secr_reportable:
+        secr_note = (
+            "This site is SECR-reportable (size thresholds met). Annual "
+            "disclosure required of Scope 1, Scope 2 location-based, an "
+            "intensity metric (typically tCO2e per unit of production or "
+            "per £m turnover), and the energy-efficiency actions taken in "
+            "the year. Reference: Companies (Directors' Report) and "
+            "Limited Liability Partnerships (Energy and Carbon Report) "
+            "Regulations 2018."
+        )
+    else:
+        secr_note = (
+            "This site is NOT SECR-reportable (below the size thresholds: "
+            "<250 employees, <£36 m turnover, <£18 m balance sheet — any "
+            "two). Voluntary disclosure under TCFD or sector-specific "
+            "schemes may still be expected by lenders or customers."
+        )
     secr_assessment = {
         "secr_reportable": site_secr_reportable,
-        "intensity_metric_required": True if site_secr_reportable else False,
-        "note": (
-            "If SECR-reportable: must disclose Scope 1, Scope 2 (location-based), "
-            "intensity metric, and energy-efficiency actions. "
-            "Reference: Companies (Directors' Report) and Limited Liability Partnerships "
-            "(Energy and Carbon Report) Regulations 2018."
-        ),
+        "intensity_metric_required": bool(site_secr_reportable),
+        "note": secr_note,
     }
 
-    # CCA: Climate Change Agreement — sector-specific energy-efficiency targets
+    if cca_subsector:
+        cca_note = (
+            f"This site participates in a Climate Change Agreement under "
+            f"sub-sector '{cca_subsector}'. The CCL reduced rate applies "
+            f"(see CCL block: ~92% relief on electricity, ~89% on gas, "
+            f"per HMRC 2024+). CCA targets typically tighten at 2-year "
+            f"intervals; achievement is measured against an energy-"
+            f"intensity baseline (kWh per tonne / hectolitre / unit). "
+            f"Maintain target compliance to retain the relief. "
+            f"Reference: HMRC CCL guidance and sector trade-body CCA."
+        )
+    else:
+        cca_note = (
+            "This site does NOT participate in a Climate Change Agreement. "
+            "Full main CCL rates apply (no reduced-rate relief). If the "
+            "sub-sector has a CCA available, joining is usually material — "
+            "see the CCL block for the value of relief at this site."
+        )
     cca_assessment = {
         "cca_subsector": cca_subsector,
         "applies": cca_subsector is not None,
-        "note": (
-            "If site is in a CCA: Climate Change Levy discount applies (95% on electricity, "
-            "100% on gas in some sectors). Targets typically tighten at 2 yr intervals. "
-            "Achievement usually energy-intensity (kWh/tonne). "
-            "Reference: HMRC CCL guidance, sector trade body."
-            if cca_subsector else "No CCA — full CCL liability."
-        ),
+        "note": cca_note,
     }
 
-    # CBAM (UK & EU): only material if exporting CBAM-listed goods
+    if cbam_exposed:
+        cbam_note = (
+            "This site IS CBAM-exposed (produces or exports CBAM-listed "
+            "goods: cement, iron, steel, fertilisers, hydrogen, aluminium, "
+            "or electricity to the EU). Embedded emissions in exported "
+            "goods are reportable to EU CBAM (transitional 2023–2025, "
+            "full from January 2026); the UK CBAM regime begins 2027. "
+            "Verified-emissions disclosure is required and an eventual "
+            "financial obligation applies."
+        )
+    else:
+        cbam_note = (
+            "This site is NOT CBAM-exposed (no listed goods exported to "
+            "the EU). No CBAM declaration or charge applies. Monitor UK "
+            "CBAM (live from 2027) for any sub-sector additions."
+        )
     cbam_assessment = {
         "cbam_exposed": cbam_exposed,
-        "note": (
-            "CBAM-exposed: embedded emissions in exported goods reportable to EU CBAM "
-            "(transitional 2023-2025, full from 2026); UK CBAM regime starts 2027. "
-            "Verified emissions disclosure required; eventual financial obligation."
-            if cbam_exposed else "Not CBAM-exposed — no emissions border adjustment."
-        ),
+        "note": cbam_note,
     }
 
     # CCL (Climate Change Levy) — main rates 2026 (HMRC).

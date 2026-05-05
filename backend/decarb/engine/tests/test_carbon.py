@@ -94,6 +94,101 @@ class TestDairyBaselineCarbon:
         assert "Scope 2 Guidance" in method
 
 
+class TestRegulatoryNarrative:
+    """B2: regulatory_exposure notes must be resolved against site facts —
+    no "If in..." / "If SECR..." template fragments leak through to the
+    renderer. Each note is a direct factual statement keyed off the site
+    brief's declared regulatory state."""
+
+    def test_ets_note_resolved_against_site(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        # Dairy is NOT in ETS per the fixture
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            site_in_uk_ets=False,
+        )
+        note = result["regulatory_exposure"]["uk_ets"]["note"]
+        assert "is NOT in UK ETS scope" in note
+        assert "If in UK ETS" not in note
+
+    def test_ets_note_in_scope_path(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            site_in_uk_ets=True,
+        )
+        note = result["regulatory_exposure"]["uk_ets"]["note"]
+        assert "IS in UK ETS scope" in note
+        assert "If in UK ETS" not in note
+
+    def test_secr_note_resolved(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        # SECR-reportable
+        r1 = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            site_secr_reportable=True,
+        )
+        assert "is SECR-reportable" in r1["regulatory_exposure"]["secr"]["note"]
+        assert "If SECR" not in r1["regulatory_exposure"]["secr"]["note"]
+        # Not reportable
+        r2 = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            site_secr_reportable=False,
+        )
+        assert "NOT SECR-reportable" in r2["regulatory_exposure"]["secr"]["note"]
+
+    def test_cca_note_resolved(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        with_cca = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            cca_subsector="dairy_processing",
+        )
+        without_cca = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            cca_subsector=None,
+        )
+        with_note = with_cca["regulatory_exposure"]["cca"]["note"]
+        without_note = without_cca["regulatory_exposure"]["cca"]["note"]
+        assert "participates in a Climate Change Agreement" in with_note
+        assert "dairy_processing" in with_note
+        assert "If site is in a CCA" not in with_note
+        assert "does NOT participate" in without_note
+
+    def test_cbam_note_resolved(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        not_exposed = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            cbam_exposed=False,
+        )
+        exposed = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            cbam_exposed=True,
+        )
+        assert "NOT CBAM-exposed" in not_exposed["regulatory_exposure"]["cbam"]["note"]
+        assert "IS CBAM-exposed" in exposed["regulatory_exposure"]["cbam"]["note"]
+
+    def test_no_if_template_language_in_any_note(self, dairy_5mw):
+        """Sweep all four notes for stale 'If ...' template fragments."""
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"], year=2026,
+            site_in_uk_ets=False,
+            site_secr_reportable=True,
+            cca_subsector="dairy_processing",
+            cbam_exposed=False,
+        )
+        reg = result["regulatory_exposure"]
+        for key in ("uk_ets", "secr", "cca", "cbam"):
+            note = reg[key]["note"]
+            assert not note.startswith("If "), (
+                f"{key} note leaks 'If ...' template language: {note!r}"
+            )
+            # Conditional snippets like "If site is in a CCA" must be gone.
+            assert "If in UK ETS" not in note
+            assert "If SECR-reportable" not in note
+            assert "If site is in a CCA" not in note
+
+
 class TestDairyCCL:
     """CCL is reported as both gross-no-CCA and CCA-applied so a senior
     reviewer can see the value of CCA participation. Numbers locked at the

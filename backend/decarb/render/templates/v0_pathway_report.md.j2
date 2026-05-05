@@ -25,7 +25,7 @@
 **Including Scope 3 upstream gas (well-to-tank + electricity T&D losses):** {{ carbon.totals.scope_1_2_3_t_co2e|fmt_int }} tCO₂e/yr.
 {% endif %}
 
-The technology screen retained **{{ screen.shortlist_count }} of {{ screen.candidate_count }}** candidate technologies for further evaluation, excluding {{ screen.excluded_count }} on grounds of process compatibility, infrastructure, or client constraint (see §3).
+The technology screen retained **{{ screen.shortlist_count }} of {{ screen.candidate_count }}** candidate technologies for further evaluation, excluding {{ screen.excluded_count }} on grounds of process compatibility, infrastructure, or client constraint{% if screen.excluded_pending_grid_decision_count and screen.excluded_pending_grid_decision_count > 0 %} and routing **{{ screen.excluded_pending_grid_decision_count }}** to a senior grid-decision register (electrical demand exceeds 1.5× declared headroom){% endif %} (see §3).
 
 A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ dispatch.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** in year 1 (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ dispatch.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ dispatch.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
 
@@ -145,8 +145,26 @@ Technology screening evaluates each candidate against nine feasibility axes (the
 _No technologies excluded._
 {% endif %}
 
+{% if screen.excluded_pending_grid_decision %}
+### §3.3 Pending senior grid decision ({{ screen.excluded_pending_grid_decision_count }})
+
+The following technologies are *not vetoed* on engineering grounds, but
+their estimated electrical demand exceeds 1.5× the site's declared
+{{ site.constraints.site_grid_headroom_mva }} MVA grid headroom — beyond
+the typical envelope a UK DNO will quote without structural reinforcement.
+A senior reviewer must weigh DNO upgrade (£50k–£500k, 12–24 month timeline)
+against capacity-staged deployment or alternative technology mix before
+these enter the shortlist.
+
+| Technology | Pending reason | Detail |
+|---|---|---|
+{% for ex in screen.excluded_pending_grid_decision %}
+| {{ ex.tech_name }} (`{{ ex.tech_id }}`) | {{ ex.pending_reason_code }} | {{ ex.reason }} |
+{% endfor %}
+{% endif %}
+
 {% if screen.borderline_notes %}
-### §3.3 Borderline notes flagged for senior review
+### §3.4 Borderline notes flagged for senior review
 
 {% for note in screen.borderline_notes %}
 - {{ note }}

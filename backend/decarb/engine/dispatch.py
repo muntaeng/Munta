@@ -92,6 +92,13 @@ _HEAT_DEFICIT_THRESHOLD_PCT = 0.5
 # 0.85 boiler eff and the methodology default).
 _BASELINE_GAS_BOILER_EFF = 0.85
 
+# Minimum approach temperature (LMTD) on the condenser side: the HP's
+# refrigerant-saturation condenser temperature must exceed the process
+# supply temperature by at least this margin for the heat exchanger to
+# transfer heat. CIBSE AM17 / BS EN 14825 guidance uses 5 K as the
+# screening default; tighter approaches require explicit HX area tuning.
+_HP_SINK_LMTD_MARGIN_K = 5.0
+
 
 # ---------------------------------------------------------------------------
 # Helper: synthetic ambient temperature profile
@@ -569,18 +576,79 @@ def simulate_site_dispatch(
     # ------------------------------------------------------------------
     # 3. Build COP tables for all HPs
     # ------------------------------------------------------------------
+    # Build a lookup of declared supply temperature per end-use. Used to
+    # validate that each HP's sink_temp_c is high enough to deliver every
+    # end-use it claims to serve (with the canonical 5 K LMTD margin).
+    eu_supply_temp_c: dict[str, float] = {}
+    for eu in eu_profiles_raw:
+        eu_name = eu.get("end_use", "")
+        t_supply = eu.get("temperature_c")
+        if eu_name and t_supply is not None:
+            eu_supply_temp_c[eu_name] = float(t_supply)
+
     hp_cop_data: list[dict[str, Any]] = []
     for hp in hps:
+        hp_id = hp.get("id", "hp_0")
+        sink_temp = float(hp.get("sink_temp_c", 0.0))
+        declared_serves = set(hp.get("serves_end_uses", []))
+
+        # Thermodynamic feasibility filter: drop end-uses whose supply
+        # temperature exceeds (sink - LMTD margin). Refuse to credit a
+        # HP with duty it physically cannot deliver.
+        effective_serves: set[str] = set()
+        infeasible_serves: list[tuple[str, float]] = []
+        for eu_name in declared_serves:
+            t_supply = eu_supply_temp_c.get(eu_name)
+            if t_supply is None:
+                # Unknown end-use temperature — pass through, dispatch loop
+                # will skip if no demand profile matches anyway.
+                effective_serves.add(eu_name)
+                continue
+            if sink_temp + 1e-9 >= t_supply + _HP_SINK_LMTD_MARGIN_K:
+                effective_serves.add(eu_name)
+            else:
+                infeasible_serves.append((eu_name, t_supply))
+
+        if infeasible_serves:
+            details = ", ".join(
+                f"{eu} (needs ≥{t + _HP_SINK_LMTD_MARGIN_K:.0f}°C, sink is {sink_temp:.0f}°C)"
+                for eu, t in infeasible_serves
+            )
+            warnings_out.append({
+                "severity": "high",
+                "code": "hp_sink_too_cold_for_end_use",
+                "message": (
+                    f"HP '{hp_id}' sink_temp_c={sink_temp:.0f}°C cannot deliver: "
+                    f"{details}. Removed from this HP's effective serves_end_uses; "
+                    "the LMTD margin of 5 K (CIBSE AM17, BS EN 14825) is the "
+                    "screening minimum."
+                ),
+            })
+
+        if not effective_serves:
+            warnings_out.append({
+                "severity": "high",
+                "code": "hp_inactive_no_compatible_end_use",
+                "message": (
+                    f"HP '{hp_id}' has no thermodynamically feasible end-uses after "
+                    "filtering — set inactive for this run. Reconfigure sink_temp_c "
+                    "or serves_end_uses."
+                ),
+            })
+
         temps, cops, design_result = _build_cop_table(hp, ambient)
         hp_cop_data.append({
-            "hp_id": hp.get("id", "hp_0"),
+            "hp_id": hp_id,
             "source_type": hp.get("source_type", "ambient_air"),
             "source_temp_c": hp.get("source_temp_c"),
-            "sink_temp_c": hp.get("sink_temp_c"),
+            "sink_temp_c": sink_temp,
             "temps_array": temps,
             "cops_array": cops,
             "design_point_result": design_result,
-            "serves_end_uses": set(hp.get("serves_end_uses", [])),
+            "serves_end_uses": effective_serves,
+            "declared_serves_end_uses": declared_serves,
+            "infeasible_serves_end_uses": [eu for eu, _ in infeasible_serves],
+            "active": len(effective_serves) > 0,
             "capacity_kw": float(hp.get("capacity_kw_thermal", 1000.0)),
             "mtbf_hours": float(hp.get("mtbf_hours", 12000.0)),
             "mttr_hours": float(hp.get("mttr_hours", 24.0)),
@@ -589,9 +657,16 @@ def simulate_site_dispatch(
     # ------------------------------------------------------------------
     # 4. Availability masks
     # ------------------------------------------------------------------
-    # HPs
+    # HPs. Inactive HPs (no feasible end-use after the sink-temperature
+    # check above) get an all-False availability mask so the dispatch and
+    # TES-charge loops skip them without further branching.
     for i, hpd in enumerate(hp_cop_data):
-        hpd["availability"] = _availability_mask(hpd["mtbf_hours"], hpd["mttr_hours"], seed=42 + i)
+        if hpd["active"]:
+            hpd["availability"] = _availability_mask(
+                hpd["mtbf_hours"], hpd["mttr_hours"], seed=42 + i,
+            )
+        else:
+            hpd["availability"] = np.zeros(HOURS_PER_YEAR, dtype=bool)
 
     # Electrode boilers
     eb_data: list[dict[str, Any]] = []
@@ -780,14 +855,11 @@ def simulate_site_dispatch(
             gas_input_arr[t] = gas_serve / gas_eff   # fuel consumed
             remaining -= gas_serve
 
-        # Track unmet demand
+        # Track unmet demand. A single aggregated warning is emitted after
+        # the dispatch loop (see "Aggregate unmet-demand warning" below) —
+        # per-hour spam is suppressed.
         if remaining > _MIN_DISPATCH_KW:
             unmet_demand_arr[t] = remaining
-            warnings_out.append({
-                "severity": "high",
-                "code": "unmet_demand",
-                "message": f"Hour {t}: {remaining:.1f} kW demand unmet — gas capacity insufficient.",
-            }) if len([w for w in warnings_out if w["code"] == "unmet_demand"]) < 5 else None
 
         # ========== TES CHARGING PHASE ==========
         # HPs charge TES with remaining capacity (any hour, if TES has headroom)
@@ -884,6 +956,33 @@ def simulate_site_dispatch(
     tes_discharge_total = float(tes_discharge_arr.sum())
     tes_charge_total_annual = float(tes_charge_total_arr.sum())
     total_unmet = float(unmet_demand_arr.sum())
+
+    # ------------------------------------------------------------------
+    # Aggregate unmet-demand warning — one entry per dispatch run, even
+    # if many hours had unmet demand. Per-hour spam was the v0.1 behaviour
+    # and made the warnings list unreadable.
+    # ------------------------------------------------------------------
+    unmet_hours_mask = unmet_demand_arr > _MIN_DISPATCH_KW
+    n_unmet_hours = int(unmet_hours_mask.sum())
+    if n_unmet_hours > 0:
+        max_kw = float(unmet_demand_arr.max())
+        # Representative hours: first 3 hours that exceeded threshold.
+        first_three = [int(h) for h in np.flatnonzero(unmet_hours_mask)[:3]]
+        warnings_out.append({
+            "severity": "high",
+            "code": "unmet_demand",
+            "message": (
+                f"Unmet demand: {round(total_unmet):,} kWh across {n_unmet_hours} "
+                f"hours, peaking at {max_kw:.1f} kW (representative hours: "
+                f"{first_three}). Gas backup capacity insufficient at peak; "
+                "either uprate gas backup, add electrified capacity, or accept "
+                "the deficit (see deficit_analysis in the dispatch result)."
+            ),
+            "n_unmet_hours": n_unmet_hours,
+            "total_unmet_kwh": round(total_unmet, 0),
+            "peak_unmet_kw": round(max_kw, 1),
+            "representative_hours": first_three,
+        })
 
     # HP runtime and weighted COP
     hp_runtime_hours = 0
