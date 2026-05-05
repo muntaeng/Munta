@@ -28,3 +28,4 @@ weasyprint>=63.0         # markdown -> PDF for report rendering
 markdown-it-py>=3.0.0    # markdown rendering
 python-dotenv>=1.0.0
 tiktoken>=0.8.0          # for chunk size calculation
+jinja2>=3.1.0            # markdown report templating

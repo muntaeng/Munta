@@ -1,0 +1,395 @@
+"""End-to-end tests for `decarb.render.render_report`.
+
+The renderer is pure Jinja2 templating against engine outputs — no
+arithmetic. These tests verify:
+
+  1. Numerical traceability — every 4+digit run in the rendered markdown
+     either matches a numerical leaf of one of the input dicts (with
+     thousands-separator and rounding tolerance) or appears verbatim in
+     a string field (e.g. a "BS EN 14825" citation).
+  2. Section structure — all 11 expected sections render against each
+     of the three golden sites; no NaN strings; no Jinja Undefined
+     leaks.
+  3. Substantive content — rendered report references the site name,
+     the gas baseline, the Scope 1+2 figure, at least one HP COP from
+     the dispatch cop_table, and a non-trivial provenance + standards
+     register.
+
+The engine modules under test are: parse_energy_profile,
+compute_baseline_carbon, screen_technologies, simulate_site_dispatch.
+ROADMAP modules (optimise_investment_pathway, monte_carlo_uncertainty,
+pinch, safety, grid, reliability) are deliberately not exercised — the
+renderer must surface them as ROADMAP placeholders, not synthesise
+numbers for them.
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from decarb.engine.carbon import compute_baseline_carbon
+from decarb.engine.dispatch import simulate_site_dispatch
+from decarb.engine.parse import parse_energy_profile
+from decarb.engine.screen import screen_technologies
+from decarb.render import render_report
+
+
+# ---------------------------------------------------------------------------
+# Fixture: run the four engine modules end-to-end, returning the bundle the
+# renderer expects. Cached per site at session scope to keep test runs fast.
+# ---------------------------------------------------------------------------
+
+
+def _default_stack_for(site: dict[str, Any]) -> list[dict[str, Any]]:
+    """A reasonable hand-specified electrified stack for each golden site.
+
+    Sized off the gas demand: HP for hot water + WHR, electrode boiler for
+    steam, thermal storage to permit off-peak dispatch, retained gas backup.
+    Real pathway optimisation is ROADMAP — this is just enough to exercise
+    the dispatch module so the renderer has carbon_summary + cop_table to
+    consume.
+    """
+    return [
+        {
+            "type": "heat_pump",
+            "tech_id": "NH3_high_temp_HP",
+            "capacity_kw_thermal": 2000,
+            "refrigerant": "Ammonia",
+            "compressor_type": "screw",
+            "source_type": "waste_heat_chiller",
+            "sink_temp_c": 90,
+            "serves_end_uses": ["hot_water"],
+        },
+        {
+            "type": "electrode_boiler",
+            "tech_id": "EB_4MW",
+            "capacity_kw": 4000,
+            "efficiency": 0.99,
+            "serves_end_uses": ["steam"],
+        },
+        {
+            "type": "thermal_storage",
+            "tech_id": "TES_8MWh",
+            "capacity_kwh": 8000,
+            "charge_rate_kw": 4000,
+            "discharge_rate_kw": 4000,
+            "round_trip_efficiency": 0.92,
+        },
+        {
+            "type": "gas_boiler",
+            "tech_id": "gas_backup",
+            "capacity_kw": 4000,
+            "efficiency": 0.85,
+            "serves_end_uses": ["steam"],
+        },
+    ]
+
+
+def _engine_bundle(site: dict[str, Any]) -> dict[str, Any]:
+    parsed = parse_energy_profile(site_brief=site)
+    carbon = compute_baseline_carbon(
+        annual_balance_kwh=parsed["annual_balance_kwh"],
+        year=2026,
+        site_secr_reportable=site.get("regulatory", {}).get("secr_reportable", True),
+        site_in_uk_ets=site.get("regulatory", {}).get("in_uk_ets", False),
+        cca_subsector=site.get("regulatory", {}).get("cca_subsector"),
+        cbam_exposed=site.get("regulatory", {}).get("cbam_exposed", False),
+    )
+    screen = screen_technologies(site_brief=site, energy_profile=parsed)
+    dispatch = simulate_site_dispatch(
+        energy_profile=parsed,
+        technology_stack=_default_stack_for(site),
+        dispatch_policy="merit_order",
+        year=2026,
+    )
+    return {
+        "site_brief": site,
+        "parse_result": parsed,
+        "carbon_result": carbon,
+        "screen_result": screen,
+        "dispatch_result": dispatch,
+    }
+
+
+@pytest.fixture
+def dairy_bundle(dairy_5mw):
+    return _engine_bundle(dairy_5mw)
+
+
+@pytest.fixture
+def brewery_bundle(brewery_8mw):
+    return _engine_bundle(brewery_8mw)
+
+
+@pytest.fixture
+def softdrinks_bundle(soft_drinks_12mw):
+    return _engine_bundle(soft_drinks_12mw)
+
+
+# ---------------------------------------------------------------------------
+# Numerical traceability helper
+# ---------------------------------------------------------------------------
+
+
+_DIGIT_GROUP = re.compile(r"\d[\d,]*\d|\d")
+
+
+def _digit_runs(text: str) -> list[str]:
+    """Extract digit-runs (with embedded commas as thousand separators stripped),
+    returning only those of length ≥ 4 after comma removal."""
+    raw = _DIGIT_GROUP.findall(text)
+    out: list[str] = []
+    for r in raw:
+        cleaned = r.replace(",", "")
+        if len(cleaned) >= 4:
+            out.append(cleaned)
+    return out
+
+
+def _walk_numeric_leaves(obj: Any) -> list[float]:
+    """Yield every numeric leaf (int/float, but not bool) reachable in obj."""
+    out: list[float] = []
+    if isinstance(obj, bool):
+        return out
+    if isinstance(obj, (int, float)):
+        out.append(float(obj))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            out.extend(_walk_numeric_leaves(v))
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            out.extend(_walk_numeric_leaves(v))
+    return out
+
+
+def _build_haystack(*dicts: dict[str, Any]) -> str:
+    """Stringify all input dicts to a haystack containing:
+
+      (a) the raw JSON serialisation (commas stripped) — captures both
+          numeric leaves like '8851.34' and citation strings like 'BS EN 14825';
+      (b) every numeric leaf rounded to int (covers '14078' for raw 14077.85);
+      (c) every numeric leaf rounded to one decimal place (covers '14077.9').
+
+    The renderer formats numbers with the int/round-1dp filters, so the
+    rounded variants are what actually appears in the markdown.
+    """
+    serialised = json.dumps(dicts, default=str).replace(",", "")
+    rounded_tokens: list[str] = []
+    for n in _walk_numeric_leaves(dicts):
+        rounded_tokens.append(str(int(round(n))))
+        rounded_tokens.append(f"{n:.1f}")
+        rounded_tokens.append(f"{n:.0f}")
+        # MWh and GWh conversions also rendered by the template:
+        if abs(n) >= 1000:
+            rounded_tokens.append(f"{n/1000:.0f}")
+            rounded_tokens.append(f"{n/1000:.1f}")
+        if abs(n) >= 1_000_000:
+            rounded_tokens.append(f"{n/1_000_000:.1f}")
+    return serialised + " " + " ".join(rounded_tokens)
+
+
+# Tokens the renderer adds that aren't from the engine dicts: the generated_at
+# timestamp and the engine version. These are control metadata, not data.
+_RENDER_METADATA_TOKENS = ("RENDER_TS_TEST",)
+
+
+def _untraceable_numbers(markdown: str, *dicts: dict[str, Any]) -> list[str]:
+    """Return digit-runs in the markdown that don't appear in either:
+
+      (a) the JSON-stringified input dicts, including rounded variants
+          of every numeric leaf (integer rounding and 1-decimal rounding,
+          plus /1e3 and /1e6 conversions for MWh / GWh display); or
+      (b) a citation string within those dicts (e.g. '14825' in
+          'BS EN 14825:2022').
+
+    Render metadata (timestamp, engine version) is whitelisted out before
+    the check by passing ``timestamp=RENDER_TS_TEST`` to ``render_report``.
+    """
+    haystack = _build_haystack(*dicts) + " " + " ".join(_RENDER_METADATA_TOKENS)
+    return [d for d in _digit_runs(markdown) if d not in haystack]
+
+
+# ---------------------------------------------------------------------------
+# §1 Substantive content tests against dairy_5mw
+# ---------------------------------------------------------------------------
+
+
+class TestDairyEndToEnd:
+    def test_renderer_returns_markdown_and_writes_file(self, dairy_bundle, tmp_path):
+        result = render_report(**dairy_bundle, output_dir=tmp_path)
+        assert result["format"] == "markdown"
+        assert result["section_count"] == 11
+        assert result["char_count"] > 1500
+        assert result["path"] is not None
+        path = Path(result["path"])
+        assert path.exists()
+        assert path.read_text(encoding="utf-8") == result["markdown"]
+
+    def test_contains_site_name(self, dairy_bundle):
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        assert dairy_bundle["site_brief"]["site_name"] in md
+
+    def test_contains_baseline_gas_in_gwh(self, dairy_bundle):
+        """Gas baseline is 38,000,000 kWh = 38.0 GWh — must appear in §2."""
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        # The renderer formats kWh→GWh with one decimal place; '38.0' must appear.
+        assert "38.0" in md
+
+    def test_contains_scope_1_2_figure(self, dairy_bundle):
+        """The engine returns ~8,851 tCO2e Scope 1+2 location-based for the
+        dairy at 2026 grid intensity. Golden truth is 7,820 tCO2e ± grid
+        sensitivity (see test_carbon.py — accepted band 7,200–9,500). The
+        rendered report must contain whatever the carbon module returns,
+        rounded to integer with thousands separator."""
+        carbon = dairy_bundle["carbon_result"]
+        s12 = carbon["totals"]["scope_1_2_loc_t_co2e"]
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        assert f"{int(round(s12)):,}" in md
+        # Sanity: engine value must be in the published golden band.
+        assert 7_200 < s12 < 9_500
+
+    def test_contains_at_least_one_hp_cop_value(self, dairy_bundle):
+        """The dispatch cop_table holds per-degree COP values; at least one
+        must be quoted in the report so a reviewer can audit the COP path
+        without reading the raw JSON."""
+        dispatch = dairy_bundle["dispatch_result"]
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        cop_values = []
+        for hp in dispatch.get("cop_table", []) or []:
+            cop_values.extend(hp.get("cop_points", []))
+        assert cop_values, "dispatch cop_table empty — engine regression?"
+        # The template renders the first and last cop points for each HP.
+        first_cop = str(cop_values[0])
+        assert first_cop in md, f"COP value {first_cop} not found in report"
+
+    def test_provenance_appendix_non_empty(self, dairy_bundle):
+        result = render_report(**dairy_bundle, write_file=False)
+        assert result["provenance_entries"] >= 5
+        assert "Appendix A — Calculation Provenance" in result["markdown"]
+
+    def test_standards_register_at_least_10_entries(self, dairy_bundle):
+        result = render_report(**dairy_bundle, write_file=False)
+        assert result["standards_cited_count"] >= 10
+        assert "Appendix B — Standards and Sources Cited" in result["markdown"]
+
+    def test_status_badges_present(self, dairy_bundle):
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        assert "IMPLEMENTED%20v0" in md
+        assert "ROADMAP%20v0.2" in md
+
+    def test_roadmap_modules_marked_not_fabricated(self, dairy_bundle):
+        """The renderer must not invent numbers for the unimplemented
+        pathway optimiser or grant tools — they appear as ROADMAP."""
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        # Each ROADMAP section should declare itself as such.
+        assert "## §4 Pathway Analysis" in md
+        assert "## §6 Funding and Grants" in md
+        assert "## §7 Implementation Roadmap" in md
+        # And at least one explicit ROADMAP callout in those sections.
+        assert md.count("ROADMAP") >= 3
+
+
+# ---------------------------------------------------------------------------
+# §2 Numerical traceability test (the load-bearing one)
+# ---------------------------------------------------------------------------
+
+
+class TestNumericalTraceability:
+    def test_no_untraceable_4plus_digit_numbers_dairy(self, dairy_bundle):
+        md = render_report(
+            **dairy_bundle, write_file=False, timestamp="RENDER_TS_TEST"
+        )["markdown"]
+        bad = _untraceable_numbers(
+            md,
+            dairy_bundle["site_brief"],
+            dairy_bundle["parse_result"],
+            dairy_bundle["carbon_result"],
+            dairy_bundle["screen_result"],
+            dairy_bundle["dispatch_result"],
+        )
+        assert not bad, (
+            f"Untraceable 4+digit numbers in rendered markdown — every such "
+            f"number must appear in an engine output dict (as a numeric leaf "
+            f"or inside a citation string). Offenders: {bad[:20]}"
+        )
+
+    def test_no_untraceable_4plus_digit_numbers_brewery(self, brewery_bundle):
+        md = render_report(
+            **brewery_bundle, write_file=False, timestamp="RENDER_TS_TEST"
+        )["markdown"]
+        bad = _untraceable_numbers(
+            md,
+            brewery_bundle["site_brief"],
+            brewery_bundle["parse_result"],
+            brewery_bundle["carbon_result"],
+            brewery_bundle["screen_result"],
+            brewery_bundle["dispatch_result"],
+        )
+        assert not bad, f"Untraceable numbers (brewery): {bad[:20]}"
+
+    def test_no_untraceable_4plus_digit_numbers_softdrinks(self, softdrinks_bundle):
+        md = render_report(
+            **softdrinks_bundle, write_file=False, timestamp="RENDER_TS_TEST"
+        )["markdown"]
+        bad = _untraceable_numbers(
+            md,
+            softdrinks_bundle["site_brief"],
+            softdrinks_bundle["parse_result"],
+            softdrinks_bundle["carbon_result"],
+            softdrinks_bundle["screen_result"],
+            softdrinks_bundle["dispatch_result"],
+        )
+        assert not bad, f"Untraceable numbers (soft drinks): {bad[:20]}"
+
+
+# ---------------------------------------------------------------------------
+# §3 Structural test against all 3 sites
+# ---------------------------------------------------------------------------
+
+
+EXPECTED_HEADERS = [
+    "## §1 Executive Summary",
+    "## §2 Site Baseline",
+    "## §3 Decarb Options Considered",
+    "## §4 Pathway Analysis",
+    "## §5 Carbon Trajectory and Regulatory Compliance",
+    "## §6 Funding and Grants",
+    "## §7 Implementation Roadmap",
+    "## §8 Risks and Assumptions",
+    "## §9 Key Decisions for Senior Review",
+    "## Appendix A — Calculation Provenance",
+    "## Appendix B — Standards and Sources Cited",
+]
+
+
+@pytest.mark.parametrize(
+    "bundle_fixture",
+    ["dairy_bundle", "brewery_bundle", "softdrinks_bundle"],
+)
+class TestStructureAllSites:
+    def test_all_11_section_headers_present(self, bundle_fixture, request):
+        bundle = request.getfixturevalue(bundle_fixture)
+        md = render_report(**bundle, write_file=False)["markdown"]
+        for header in EXPECTED_HEADERS:
+            assert header in md, f"missing section header: {header!r}"
+
+    def test_no_nan_strings(self, bundle_fixture, request):
+        bundle = request.getfixturevalue(bundle_fixture)
+        md = render_report(**bundle, write_file=False)["markdown"]
+        # 'nan' is a frequent silent leak in pandas/numpy paths; fail loudly.
+        assert "nan" not in md.lower().split()  # whole-token check
+        assert "NaN" not in md
+        assert "None" not in md  # raw None leak from .get(...) without default
+
+    def test_no_jinja_undefined_leaks(self, bundle_fixture, request):
+        bundle = request.getfixturevalue(bundle_fixture)
+        md = render_report(**bundle, write_file=False)["markdown"]
+        # Jinja's default Undefined renders as '' but error markers leak as
+        # 'Undefined' if str() is forced. Belt-and-braces check.
+        assert "Undefined" not in md
+        assert "{{" not in md and "}}" not in md
+        assert "{%" not in md and "%}" not in md

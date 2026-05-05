@@ -28,6 +28,7 @@ from decarb.engine.parse import parse_energy_profile as _parse_energy_profile
 from decarb.engine.carbon import compute_baseline_carbon as _compute_baseline_carbon
 from decarb.engine.dispatch import simulate_site_dispatch as _simulate_site_dispatch
 from decarb.engine.screen import screen_technologies as _screen_technologies
+from decarb.render import render_report as _render_report
 from decarb.corpus.db import get_conn, search_chunks
 from decarb.corpus.embed import embed_single, get_client as _get_embed_client
 
@@ -40,13 +41,33 @@ _site_context: dict[str, Any] = {}
 
 
 def set_site_context(ctx: dict[str, Any]) -> None:
-    """Store pre-computed site context (energy profile, screening) for tool wrappers."""
+    """Store pre-computed site context (energy profile, screening) for tool wrappers.
+
+    The renderer reads from a `engine_results` sub-dict that this module
+    accumulates as the agent calls tools (compute_baseline_carbon,
+    simulate_site_dispatch, etc.). We seed it from the pre-run results
+    that ``agent.py`` passes in (energy_profile, screening) so the
+    renderer has the full bundle available regardless of tool-call
+    ordering.
+    """
     global _site_context
-    _site_context = ctx
+    _site_context = dict(ctx)
+    bundle = dict(_site_context.get("engine_results") or {})
+    if "energy_profile" in _site_context and "parse_energy_profile" not in bundle:
+        bundle["parse_energy_profile"] = _site_context["energy_profile"]
+    if "screening" in _site_context and "screen_technologies" not in bundle:
+        bundle["screen_technologies"] = _site_context["screening"]
+    _site_context["engine_results"] = bundle
 
 
 def get_site_context() -> dict[str, Any]:
     return _site_context
+
+
+def _record_engine_output(tool_name: str, full_output: dict[str, Any]) -> None:
+    """Accumulate full engine output keyed by tool name, for the renderer."""
+    bundle = _site_context.setdefault("engine_results", {})
+    bundle[tool_name] = full_output
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +90,9 @@ def calculate_hp_cycle(**kwargs: Any) -> dict[str, Any]:
 
 
 def parse_energy_profile(**kwargs: Any) -> dict[str, Any]:
-    return _parse_energy_profile(**kwargs)
+    full = _parse_energy_profile(**kwargs)
+    _record_engine_output("parse_energy_profile", full)
+    return full
 
 
 def compute_baseline_carbon(**kwargs: Any) -> dict[str, Any]:
@@ -88,6 +111,7 @@ def compute_baseline_carbon(**kwargs: Any) -> dict[str, Any]:
             "total_primary_kwh": elec + gas + oil + bio,
         }
     full = _compute_baseline_carbon(**kwargs)
+    _record_engine_output("compute_baseline_carbon", full)
     # Compact: key numbers only
     return {
         "scope_1_tco2e": full.get("scope_1", {}).get("t_co2e_year"),
@@ -108,6 +132,7 @@ def simulate_site_dispatch(**kwargs: Any) -> dict[str, Any]:
         return {"error": "No energy profile in site context — agent must pre-run parse_energy_profile"}
     kwargs["energy_profile"] = energy_profile
     full = _simulate_site_dispatch(**kwargs)
+    _record_engine_output("simulate_site_dispatch", full)
     # Compact: carbon + utilisation summary only
     carbon = full.get("carbon_summary", {})
     utils = full.get("equipment_utilisation", [])
@@ -132,7 +157,9 @@ def simulate_site_dispatch(**kwargs: Any) -> dict[str, Any]:
 
 
 def screen_technologies(**kwargs: Any) -> dict[str, Any]:
-    return _screen_technologies(**kwargs)
+    full = _screen_technologies(**kwargs)
+    _record_engine_output("screen_technologies", full)
+    return full
 
 
 def compute_pinch_analysis(**kwargs: Any) -> dict[str, Any]:
@@ -245,8 +272,59 @@ def validate_pathway(**kwargs: Any) -> dict[str, Any]:
 
 
 def render_report(**kwargs: Any) -> dict[str, Any]:
-    """STUB. Implemented Week 3."""
-    return {"_stub": True, "tool": "render_report"}
+    """Render the 11-section pathway markdown report from accumulated
+    engine outputs. Reads from ``_site_context['engine_results']`` rather
+    than taking tool-output payloads — this keeps the LLM-facing tool
+    surface lean while still giving the renderer the full bundles.
+    """
+    fmt = kwargs.get("format", "markdown")
+    include_appendices = kwargs.get("include_appendices", True)
+
+    site_brief = _site_context.get("site_brief")
+    bundle = _site_context.get("engine_results") or {}
+    parse_result = bundle.get("parse_energy_profile")
+    carbon_result = bundle.get("compute_baseline_carbon")
+    screen_result = bundle.get("screen_technologies")
+    dispatch_result = bundle.get("simulate_site_dispatch")
+
+    missing = [
+        name for name, val in (
+            ("site_brief", site_brief),
+            ("parse_energy_profile", parse_result),
+            ("compute_baseline_carbon", carbon_result),
+            ("screen_technologies", screen_result),
+            ("simulate_site_dispatch", dispatch_result),
+        )
+        if not val
+    ]
+    if missing:
+        return {
+            "error": (
+                "render_report cannot run — missing required engine outputs in "
+                "site context: " + ", ".join(missing) + ". Call those tools first."
+            )
+        }
+
+    if fmt == "pdf":
+        return {"error": "PDF rendering is deferred — request format='markdown'."}
+
+    result = _render_report(
+        site_brief=site_brief,
+        parse_result=parse_result,
+        carbon_result=carbon_result,
+        screen_result=screen_result,
+        dispatch_result=dispatch_result,
+        format="markdown",
+        include_appendices=include_appendices,
+    )
+    return {
+        "path": result["path"],
+        "format": result["format"],
+        "char_count": result["char_count"],
+        "section_count": result["section_count"],
+        "provenance_entries": result["provenance_entries"],
+        "standards_cited_count": result["standards_cited_count"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -483,14 +561,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "render_report",
-        "description": "STUB Week 3. Render markdown deliverable with provenance appendix and bibliography.",
+        "description": (
+            "Render the 11-section pathway markdown deliverable from accumulated "
+            "engine outputs (parse_energy_profile, compute_baseline_carbon, "
+            "screen_technologies, simulate_site_dispatch). Modules not yet "
+            "implemented appear as ROADMAP placeholders. Output is written to "
+            "decarb/runs/<site_id>_<timestamp>.md. Returns the file path and "
+            "summary statistics. Call this LAST, after all engine modules above "
+            "have been invoked at least once for this site."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "sections": {"type": "array", "items": {"type": "string"}, "description": "Report sections to include"},
                 "format": {"type": "string", "enum": ["markdown", "pdf"], "default": "markdown"},
+                "include_appendices": {"type": "boolean", "default": True},
             },
-            "required": ["sections"],
+            "required": [],
         },
     },
 ]
