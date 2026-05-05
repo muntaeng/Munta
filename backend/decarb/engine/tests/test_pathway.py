@@ -98,14 +98,13 @@ def _cached_pathway(
     *,
     ets: float = 0.0,
     grant: float = 0.0,
+    rule: str = "max_npv",
 ) -> dict:
-    """Cache one pathway result per (site_id, ets, grant) across the test
-    module — each optimiser run is ~10–20 s, so naive per-test re-runs
-    balloon the suite. Pytest fixture scoping conflicts with the
-    function-scoped golden-site fixtures, so the cache lives in this
-    module rather than using `scope='module'`."""
+    """Cache one pathway result per (site_id, ets, grant, rule) across
+    the test module — each optimiser run is ~10–20 s, so naive
+    per-test re-runs balloon the suite."""
     site_id = site.get("site_id", "unknown")
-    key = (site_id, round(ets, 3), round(grant, 3))
+    key = (site_id, round(ets, 3), round(grant, 3), rule)
     if key not in _PATHWAY_CACHE:
         ep = parse_energy_profile(site_brief=site)
         sc = screen_technologies(site_brief=site, energy_profile=ep)
@@ -113,6 +112,7 @@ def _cached_pathway(
             site_brief=site, screening=sc, energy_profile=ep,
             ets_allowance_price_gbp_per_tco2e=ets,
             ietf_grant_fraction=grant,
+            pathway_selection_rule=rule,
         )
     return _PATHWAY_CACHE[key]
 
@@ -440,6 +440,47 @@ class TestDairyPathway:
         if bal["year_15_reduction_pct"] < cons["year_15_reduction_pct"] - 1e-6:
             codes = {w.get("code") for w in dairy_pathway["warnings"]}
             assert "balanced_underperforms_conservative_under_v0_defaults" in codes
+
+    def test_max_reduction_positive_npv_rule(self, dairy_5mw):
+        """Issue F (iter-2): under `max_reduction_positive_npv` Balanced
+        is the highest year-15-reduction pathway whose NPV is positive.
+        Validates that the rule (a) returns a positive-NPV Balanced and
+        (b) Balanced.reduction >= every other NPV-positive candidate's
+        reduction, and (c) the legacy
+        `balanced_underperforms_conservative_under_v0_defaults`
+        advisory is suppressed when this rule is active."""
+        pw = _cached_pathway(dairy_5mw, ets=75.0, grant=0.30,
+                             rule="max_reduction_positive_npv")
+        bal = pw["pathways"]["balanced"]
+        assert bal["npv_gbp"] > 0, (
+            f"Balanced NPV under max_reduction_positive_npv must stay "
+            f"positive, got £{bal['npv_gbp']:,.0f}"
+        )
+        # Must dominate Conservative on year-15 reduction (the
+        # inversion the iter-2 reviewer flagged).
+        cons = pw["pathways"]["conservative"]
+        assert bal["year_15_reduction_pct"] >= cons["year_15_reduction_pct"] - 1e-6, (
+            f"Balanced reduction {bal['year_15_reduction_pct']}% must "
+            f"meet or exceed Conservative {cons['year_15_reduction_pct']}% "
+            "under max_reduction_positive_npv"
+        )
+        codes = {w.get("code") for w in pw["warnings"]}
+        assert "balanced_underperforms_conservative_under_v0_defaults" not in codes, (
+            "Inversion advisory must be suppressed under "
+            "max_reduction_positive_npv (the rule structurally prevents "
+            "the inversion)."
+        )
+
+    def test_unknown_pathway_selection_rule_raises(self, dairy_5mw):
+        """Defensive: unknown rule must raise rather than silently fall
+        back to a default."""
+        ep = parse_energy_profile(site_brief=dairy_5mw)
+        sc = screen_technologies(site_brief=dairy_5mw, energy_profile=ep)
+        with pytest.raises(ValueError, match="pathway_selection_rule"):
+            optimise_investment_pathway(
+                site_brief=dairy_5mw, screening=sc, energy_profile=ep,
+                pathway_selection_rule="not_a_real_rule",
+            )
 
     def test_no_tes_without_eb_in_same_stack(self, dairy_pathway):
         """Issue D: TES economics depend on the EB's TOU arbitrage

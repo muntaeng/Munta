@@ -792,6 +792,7 @@ def optimise_investment_pathway(
     discount_rate: float | None = None,
     ets_allowance_price_gbp_per_tco2e: float | None = None,
     ietf_grant_fraction: float | None = None,
+    pathway_selection_rule: str = "max_npv",
 ) -> dict[str, Any]:
     """Brute-force enumerate candidate decarbonisation pathways and return
     Conservative / Balanced / Aggressive picks plus the cost-vs-carbon
@@ -931,7 +932,34 @@ def optimise_investment_pathway(
     #                  The all-out carbon-leader, no NPV constraint.
     pathways: dict[str, Any] = {}
     if evaluated:
-        balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+        # Balanced selection rule. v0 default is `max_npv` (the "best
+        # value" pick). `max_reduction_positive_npv` (Reviewer iter-2,
+        # issue F) selects the highest year-15 reduction among
+        # candidates whose NPV remains positive — i.e. the pathway
+        # that buys the most carbon without going under water.
+        if pathway_selection_rule == "max_reduction_positive_npv":
+            positive_npv = [e for e in evaluated if e["npv_gbp"] > 0]
+            if positive_npv:
+                balanced = max(
+                    positive_npv,
+                    key=lambda e: (
+                        e["year_15_reduction_pct"], e["npv_gbp"],
+                    ),
+                )
+            else:
+                # No NPV-positive pathway exists under the current
+                # tariffs / overlay; fall back to max-NPV so the
+                # selection rule is total. The `carbon_price_and_grant
+                # _excluded` warning will already be advising the
+                # senior reader to apply the overlay.
+                balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+        elif pathway_selection_rule == "max_npv":
+            balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+        else:
+            raise ValueError(
+                f"Unknown pathway_selection_rule {pathway_selection_rule!r} — "
+                "expected one of: max_npv, max_reduction_positive_npv"
+            )
         best_npv = balanced["npv_gbp"]
         delta = max(500_000.0, 0.25 * abs(best_npv))
 
@@ -1102,8 +1130,14 @@ def optimise_investment_pathway(
     # so Balanced.year_15 < Conservative.year_15. Honest output, but
     # the labelling reads counter-intuitively without context. Surface
     # the inversion explicitly so the renderer can flag it in §1.
+    # Skip the advisory when the caller has already opted into the
+    # `max_reduction_positive_npv` rule — by definition the inversion
+    # cannot occur under that rule (Balanced is the max-reduction
+    # NPV-positive pick, so any same-NPV-class pathway with higher
+    # reduction would have been Balanced instead).
     if (
-        pathways.get("balanced") and pathways.get("conservative")
+        pathway_selection_rule != "max_reduction_positive_npv"
+        and pathways.get("balanced") and pathways.get("conservative")
         and pathways["balanced"]["year_15_reduction_pct"]
             < pathways["conservative"]["year_15_reduction_pct"] - 1e-6
     ):
@@ -1281,6 +1315,29 @@ def optimise_investment_pathway(
                 "method": (
                     "Non-dominated set of (capex_total_gbp, "
                     "cumulative_carbon_abated_t_co2e) over all evaluated candidates."
+                ),
+            },
+            {
+                "calculation": "Balanced selection rule",
+                "method": (
+                    f"pathway_selection_rule={pathway_selection_rule!r}. "
+                    "max_npv: argmax NPV across feasible set. "
+                    "max_reduction_positive_npv: argmax year-15 reduction "
+                    "subject to NPV > 0; tie-break by NPV (Reviewer iter-2 "
+                    "issue F)."
+                ),
+            },
+            {
+                "calculation": "§9 senior-decision X-to-Y rendering",
+                "method": (
+                    "X/Y values in §9 are read live from "
+                    "pathways.{aggressive,balanced,conservative}."
+                    "{year_15_reduction_pct,npv_gbp,capex_total_gbp} at "
+                    "render time. Constants used: NH3 split-skid capex "
+                    "uplift £150,000 (industry indicative for 1+ MW NH3 "
+                    "HP per BS EN 378-1 Annex C charge-limit rebalance); "
+                    "all-end-uses average HP demand 1,287 kW (screen.py "
+                    "capacity axis output)."
                 ),
             },
         ],

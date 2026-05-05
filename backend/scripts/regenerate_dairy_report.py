@@ -95,6 +95,12 @@ def main() -> None:
         energy_profile=parse_result,
         ets_allowance_price_gbp_per_tco2e=75.0,
         ietf_grant_fraction=0.30,
+        # Reviewer iter-2 issue F: select Balanced as the highest-
+        # year-15-reduction pathway whose NPV stays positive, so the
+        # senior reader's "best ambition that pays back" pick is the
+        # one labelled Balanced — not the absolute max-NPV pathway,
+        # which on this site lands on a low-reduction stack.
+        pathway_selection_rule="max_reduction_positive_npv",
     )
 
     ts = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
