@@ -275,6 +275,36 @@ class TestDairyDispatch:
             "for canonical NH3 35→90°C screw — investigate."
         )
 
+    def test_scope_2_includes_baseline_and_new_electricity(
+        self, dairy_5mw, dairy_result
+    ):
+        """Issue A: post-dispatch Scope 2 (location-based) must equal
+        (baseline_site_electricity + new_HP+EB_electricity) × grid_intensity.
+        The earlier bug counted only the new electricity, producing a
+        post-dispatch Scope 2 implausibly LOWER than baseline despite
+        ~8 GWh of new electrified load."""
+        cs = dairy_result["carbon_summary"]
+        grid = cs["grid_intensity_used_kg_co2e_kwh"]
+        new_elec = cs["new_electricity_kwh"]
+        baseline_elec = cs["baseline_electricity_kwh"]
+        # Baseline electricity from dairy fixture is 12.5 GWh.
+        assert baseline_elec > 12_000_000, (
+            f"baseline_electricity_kwh {baseline_elec} below expected 12.5 GWh"
+        )
+        assert new_elec > 0, "Dispatched stack must produce positive new elec"
+        expected_scope_2 = (baseline_elec + new_elec) * grid / 1000.0
+        assert abs(cs["scope_2_loc_t_co2e"] - expected_scope_2) < 1.0, (
+            f"scope_2_loc_t_co2e {cs['scope_2_loc_t_co2e']} differs from "
+            f"(baseline+new)×grid={expected_scope_2:.1f}"
+        )
+        # Post-dispatch Scope 2 must exceed baseline-only Scope 2 by
+        # at least new_elec × grid intensity (the +1.2 ktCO2e the bug
+        # ticket calls out).
+        baseline_only = cs["scope_2_loc_baseline_elec_t_co2e"]
+        assert cs["scope_2_loc_t_co2e"] >= baseline_only + (
+            new_elec * grid / 1000.0
+        ) - 0.5
+
 
 class TestDispatchStatus:
     """`dispatch_status` is the source-of-truth flag for whether the

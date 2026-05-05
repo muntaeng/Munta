@@ -1035,9 +1035,19 @@ def simulate_site_dispatch(
     # 9. Carbon summary
     # ------------------------------------------------------------------
     scope_1_t = gas_input_total * gas_ef / 1000.0
-    # Scope 2 location-based: use annual average grid intensity × total electricity
-    total_elec_kwh = float((total_hp_elec_t + total_eb_elec_t).sum())
+    # Scope 2 location-based: annual average grid intensity × TOTAL site electricity.
+    # Total = baseline non-heat electricity (refrigeration, lighting, CIP pumps —
+    # unchanged by heat dispatch) + new electricity drawn by HP and EB. The dispatch
+    # only models the heat stack, but the carbon_summary describes the post-dispatch
+    # SITE state and so must include the unchanged baseline electricity load —
+    # otherwise post-dispatch Scope 2 reads as physically lower than baseline,
+    # contradicting the +1.2 ktCO2e of new electrified load.
+    new_elec_kwh = float((total_hp_elec_t + total_eb_elec_t).sum())
+    baseline_elec_kwh = float(annual_balance.get("electricity_kwh", 0) or 0)
+    total_elec_kwh = baseline_elec_kwh + new_elec_kwh
     scope_2_loc_t = total_elec_kwh * grid_carbon / 1000.0
+    scope_2_loc_baseline_only_t = baseline_elec_kwh * grid_carbon / 1000.0
+    scope_2_loc_new_only_t = new_elec_kwh * grid_carbon / 1000.0
 
     # ------------------------------------------------------------------
     # 10. Energy balance check
@@ -1213,6 +1223,10 @@ def simulate_site_dispatch(
         "carbon_summary": {
             "scope_1_t_co2e": round(scope_1_t, 1),
             "scope_2_loc_t_co2e": round(scope_2_loc_t, 1),
+            "scope_2_loc_baseline_elec_t_co2e": round(scope_2_loc_baseline_only_t, 1),
+            "scope_2_loc_new_elec_t_co2e": round(scope_2_loc_new_only_t, 1),
+            "baseline_electricity_kwh": round(baseline_elec_kwh, 0),
+            "new_electricity_kwh": round(new_elec_kwh, 0),
             "total_t_co2e": round(scope_1_t + scope_2_loc_t, 1),
             "grid_intensity_used_kg_co2e_kwh": round(grid_carbon, 4),
             "gas_emission_factor_kg_co2e_kwh": round(gas_ef, 5),

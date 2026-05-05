@@ -74,12 +74,12 @@
       "industrial_heat_pump_mid_temp",
       "industrial_heat_pump_high_temp",
       "electrode_boiler_steam",
-      "waste_heat_recovery_chiller_to_HW",
       "thermal_energy_storage"
     ],
     "expected_shortlist_must_exclude_with_reason": {
       "biomass_boiler": "dairy GMP / contamination risk; rarely deployable in close proximity to milk processing",
-      "100pc_hydrogen_boiler": "no hydrogen network in Carlisle, no on-site electrolyser viable at this scale today"
+      "100pc_hydrogen_boiler": "no hydrogen network in Carlisle, no on-site electrolyser viable at this scale today",
+      "waste_heat_recovery_chiller_to_HW": "chiller-condensate WHR deliverable sink ~70°C cannot serve 85°C hot water with the 5 K LMTD margin (CIBSE AM17, BS EN 14825). Same gate as simulate_site_dispatch."
     },
     "balanced_pathway_sketch": {
       "year_1": "Install 2 MW NH3 high-temp HP for hot water + waste heat recovery from existing chillers",

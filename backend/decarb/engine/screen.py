@@ -249,11 +249,22 @@ def _generate_candidate_techs(site_brief: dict) -> list[dict[str, Any]]:
     # --- Waste Heat Recovery ---
     whr_id = _whr_tech_id(subsector, existing_plant, total_chiller_mw)
     if whr_id is not None:
+        # Deliverable sink temperature depends on the source the WHR taps:
+        #   - chiller condensate (~40°C) lifted via low-lift HP → ~70°C
+        #   - wort cooler (~98°C source) → direct HX, ~90°C deliverable
+        # Stored on the candidate so _check_thermodynamic can apply the
+        # same sink-vs-supply + LMTD gate that simulate_site_dispatch
+        # uses (BS EN 14825 / CIBSE AM17 minimum 5 K LMTD margin).
+        if whr_id == "waste_heat_recovery_wort_cooling":
+            whr_sink_c = 90.0
+        else:
+            whr_sink_c = 70.0
         candidates.append({
             "id": whr_id,
             "category": "waste_heat_recovery",
             "name": "Waste Heat Recovery",
             "application": "hot_water",
+            "sink_temp_c": whr_sink_c,
             "chiller_mw": total_chiller_mw,
             "demand_kwh_yr": hw_demand_kwh,
         })
@@ -343,14 +354,29 @@ def _check_thermodynamic(tech: dict, site_brief: dict) -> tuple[bool, str]:
         return True, "TES is a storage buffer, thermodynamically compatible with any temperature tier"
 
     if cat == "waste_heat_recovery":
-        # Require chiller condensing temp (approx 30–45°C) below delivery temp
-        # For hot_water at ≤80°C this is naturally satisfied; high-temp delivery may not be
-        if sink and sink > 80.0:
-            return False, (
-                f"WHR from chiller condensing heat (~30–45°C) cannot deliver {sink:.0f}°C "
-                "hot water — thermodynamic lift insufficient for this temperature target"
-            )
-        return True, "Chiller condensing heat (approx 30–45°C) sufficient for hot-water delivery ≤ 80°C"
+        # Mirror the sink-vs-supply + LMTD gate that simulate_site_dispatch
+        # uses (CIBSE AM17, BS EN 14825): the WHR's deliverable sink must
+        # be at least the demanded hot-water supply temperature plus a 5 K
+        # LMTD margin. Without this, screen retains a WHR that the dispatch
+        # then silently disables (issue B in dairy report review).
+        process_heat = site_brief.get("process_heat", {})
+        hot_water = process_heat.get("hot_water", {}) or {}
+        hw_supply_c = hot_water.get("supply_temp_c")
+        LMTD_K = 5.0
+        if hw_supply_c is not None and sink:
+            required_sink_c = float(hw_supply_c) + LMTD_K
+            if sink + 1e-6 < required_sink_c:
+                return False, (
+                    f"WHR deliverable sink {sink:.0f}°C cannot serve hot-water at "
+                    f"{float(hw_supply_c):.0f}°C with the {LMTD_K:.0f} K LMTD margin "
+                    "(CIBSE AM17, BS EN 14825). Same gate as simulate_site_dispatch — "
+                    "screen and dispatch agree, no orphan capex."
+                )
+        return True, (
+            f"WHR deliverable sink {sink:.0f}°C clears the "
+            f"hot-water supply requirement with the 5 K LMTD margin "
+            f"(CIBSE AM17, BS EN 14825)."
+        )
 
     if cat == "mvr":
         return True, "MVR compresses low-pressure vapour; applicable for steam with ΔT < 30K"
@@ -858,13 +884,23 @@ def _screen_single_tech(
     if grid_detail and "warning" in grid_detail.lower():
         flagged_risks.append(grid_detail)
 
-    # Build feasibility rationale
-    rationale = (
-        f"Thermodynamic: {thermo_detail}. "
-        f"Capacity: {cap_detail}. "
-        f"Compressor: {comp_detail}. "
-        f"Regulatory: {reg_detail}."
-    )
+    # Feasibility rationale rendered as a single paragraph — no
+    # "Thermodynamic: ... Capacity: ... Compressor: ..." debug-print
+    # labels. Each axis appears as a clause; senior reader gets prose,
+    # not a key:value dump. Issue I in the dairy report review.
+    def _trim(s: str) -> str:
+        s = (s or "").strip()
+        return s.rstrip(". ").rstrip(",") if s else ""
+
+    clauses = [c for c in (
+        _trim(thermo_detail),
+        _trim(cap_detail),
+        _trim(comp_detail),
+        _trim(reg_detail),
+    ) if c]
+    rationale = ". ".join(clauses)
+    if rationale and not rationale.endswith("."):
+        rationale += "."
 
     return {
         "tech_id": tech_id,

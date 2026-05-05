@@ -169,6 +169,27 @@ def render_report(
         pathway_result,
     )
 
+    # Prefer the recommended (Balanced) pathway's year-1 dispatch over
+    # the canonical hand-spec dispatch when both are available — issue
+    # C in the dairy report review. The canonical stack is illustrative
+    # only and does not correspond to any §4.1 pathway, so quoting its
+    # numbers in §1 / §5.3 mis-describes the recommendation.
+    pathway_dispatch = None
+    pathway_dispatch_pathway_name = None
+    pathway_dispatch_calendar_year = None
+    if pathway_result and pathway_result.get("pathways"):
+        for prefer in ("balanced", "conservative", "aggressive"):
+            pw = pathway_result["pathways"].get(prefer)
+            if pw and pw.get("first_full_stack_dispatch"):
+                pathway_dispatch = pw["first_full_stack_dispatch"]
+                pathway_dispatch_pathway_name = prefer
+                pathway_dispatch_calendar_year = pw.get(
+                    "first_full_stack_calendar_year"
+                )
+                break
+
+    headline_dispatch = pathway_dispatch or dispatch_result
+
     ts = timestamp or dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     md = template.render(
         site=site_brief,
@@ -176,6 +197,10 @@ def render_report(
         carbon=carbon_result,
         screen=screen_result,
         dispatch=dispatch_result,
+        headline_dispatch=headline_dispatch,
+        pathway_dispatch=pathway_dispatch,
+        pathway_dispatch_pathway_name=pathway_dispatch_pathway_name,
+        pathway_dispatch_calendar_year=pathway_dispatch_calendar_year,
         pathway=pathway_result,
         provenance=provenance,
         standards=standards,
@@ -184,6 +209,22 @@ def render_report(
         engine_version="v0",
     )
 
+    # §9 specificity gate — issue G in the dairy report review.
+    # The engine spec (prompts/orchestrator_v0_1.txt) requires §9
+    # decisions to be in the form "Senior to confirm: <finding>. If
+    # <alternative>, <impact> changes from <X> to <Y>." Count the
+    # "Senior to confirm:" markers and refuse to emit a report whose
+    # §9 has fewer than four. This is a deterministic post-condition,
+    # not an LLM-tested heuristic.
+    senior_to_confirm_count = md.count("**Senior to confirm:")
+    if senior_to_confirm_count < 4:
+        raise AssertionError(
+            f"§9 specificity gate failed: rendered report has only "
+            f"{senior_to_confirm_count} 'Senior to confirm:' decisions, "
+            "engine spec requires ≥4 (HP capacity, grid headroom, NH3 "
+            "charge limit, IETF eligibility). Issue G."
+        )
+
     out: dict[str, Any] = {
         "format": "markdown",
         "markdown": md,
@@ -191,6 +232,7 @@ def render_report(
         "section_count": 11,
         "provenance_entries": len(provenance),
         "standards_cited_count": len(standards),
+        "section_9_senior_decisions_count": senior_to_confirm_count,
         "path": None,
     }
 

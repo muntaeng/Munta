@@ -402,11 +402,8 @@ def _generate_candidates(
                 config=_hp_config_high_temp(cap, high_hp_requires_grid),
                 requires_grid_decision=high_hp_requires_grid,
             )]
-            if has_tes:
-                high_hp_actions.append(_Action(
-                    year=1, tech_kind="thermal_storage", capacity=8_000.0,
-                    config=_tes_config(8_000.0),
-                ))
+            # No TES here — see the same-stack-needs-EB justification
+            # in the main sweep below (issue D).
             candidates.append(_PathwayCandidate(
                 f"high_temp_hp_{int(cap)}kW", high_hp_actions,
             ))
@@ -440,7 +437,16 @@ def _generate_candidates(
                 config=_electrode_config(eb_kw),
                 requires_grid_decision=eb_requires_grid,
             ))
-        if tes_kwh > 0:
+        # TES economics rely on the EB's TOU arbitrage envelope: the
+        # cheap-rate window lets the EB overcharge TES for on-peak
+        # discharge, and that arbitrage is the dominant NPV term for an
+        # industrial sensible-heat tank. Without an EB, the only TES
+        # value is HP demand-shifting, which is small (HP runs
+        # continuously already) and does not justify £40/kWh capex.
+        # Skip TES candidates when the same stack has no EB — issue D
+        # in the dairy report review (Balanced was carrying £320k of
+        # TES with HP-only and overstated NPV).
+        if tes_kwh > 0 and eb_kw > 0:
             tes_year = max(eb_y, hp_y)            # TES installs alongside or after the latest tech
             actions.append(_Action(
                 year=tes_year, tech_kind="thermal_storage", capacity=tes_kwh,
@@ -537,6 +543,17 @@ def _evaluate_pathway(
             items.append(tup)
         return tuple(items)
 
+    # Year at which the full pathway stack is operational (last
+    # install). Used below to stash a representative year-1 dispatch
+    # summary on the pathway record so the renderer can show the
+    # actual chosen-pathway dispatch in §4.4 instead of an unrelated
+    # canonical hand-spec stack (issue C in the dairy report review).
+    first_full_stack_year = (
+        max((a.year for a in candidate.actions), default=0)
+        if candidate.actions else 0
+    )
+    first_full_stack_dispatch: dict[str, Any] | None = None
+
     for y in range(horizon_years):
         stack = _stack_at_year(
             candidate.actions, y, gas_backup_capacity_kw, must_keep_steam_backup,
@@ -553,6 +570,9 @@ def _evaluate_pathway(
                 year=base_year + y,
             )
             dispatch_cache[sig] = d
+
+        if y == first_full_stack_year and first_full_stack_dispatch is None:
+            first_full_stack_dispatch = d
 
         # Don't abort on sink-warnings — B0 has zeroed the offending HP duty
         # already — but DO capture them, deduplicated, for top-level
@@ -665,7 +685,16 @@ def _evaluate_pathway(
             for a in candidate.actions
         ],
         "capex_total_gbp": round(capex_total, 0),
-        "annual_opex_year1_gbp": round(opex_per_year[0], 0),
+        # Steady-state annual O&M with ALL installs operational. Reported
+        # instead of opex_per_year[0] because some pathways defer their
+        # largest install to year 1 (e.g. dairy Balanced: HP at calendar
+        # 2027), so opex_per_year[0] is the year-of-WHR-only figure and
+        # systematically understates the senior reader's "annual O&M"
+        # mental model. Issue E in the dairy report review.
+        "annual_opex_year1_gbp": round(
+            sum(_annual_opex_for_action(a) for a in candidate.actions), 0
+        ),
+        "annual_opex_first_year_partial_gbp": round(opex_per_year[0], 0),
         "npv_gbp": round(npv, 0),
         "irr": round(irr, 4) if irr is not None else None,
         "irr_unrecoverable_reason": (
@@ -694,6 +723,9 @@ def _evaluate_pathway(
         "cashflows_gbp": [round(c, 0) for c in cashflows],
         "annual_dispatch_cost_gbp": [round(c, 0) for c in annual_dispatch_costs],
         "annual_pathway_carbon_t_co2e": [round(c, 1) for c in annual_carbon_t],
+        "first_full_stack_year_index": first_full_stack_year,
+        "first_full_stack_calendar_year": base_year + first_full_stack_year,
+        "first_full_stack_dispatch": first_full_stack_dispatch,
         "requires_grid_decision": requires_grid_decision,
         "sink_warnings": sink_warnings_seen,
     }
@@ -1075,19 +1107,40 @@ def optimise_investment_pathway(
         and pathways["balanced"]["year_15_reduction_pct"]
             < pathways["conservative"]["year_15_reduction_pct"] - 1e-6
     ):
+        # Advisory text varies by whether the carbon/grant overlay is
+        # already applied. The earlier wording promised that "with
+        # overlay applied, Balanced reverts to highest-reduction-
+        # positive-NPV" — but the selection rule is unconditionally
+        # max-NPV regardless of overlay, so under £75/tCO2e + 30% grant
+        # Balanced can still rank below Conservative on year-15
+        # reduction. Keep the inversion advisory; drop the stale
+        # promise. Issue F in the dairy report review.
+        if ets_price <= 0.0 and grant_frac <= 0.0:
+            tail = (
+                " — a consequence of zero carbon price and zero grant in "
+                "the v0 default. Re-run with the £75/tCO2e + 30% IETF-grant "
+                "overlay; if the inversion persists, it reflects the "
+                "site's physics, not a missing appraisal layer."
+            )
+        else:
+            tail = (
+                f" under the £{ets_price:.0f}/tCO2e carbon price + "
+                f"{grant_frac:.0%} grant overlay. The Balanced selection "
+                "rule is unconditionally max-NPV; on this site, the max-"
+                "NPV pathway happens to land on a smaller-capex / lower-"
+                "reduction stack than Conservative even with the overlay "
+                "active. A senior reader should treat Conservative as "
+                "the higher-ambition pick here."
+            )
         warnings_out.append({
             "severity": "advisory",
             "code": "balanced_underperforms_conservative_under_v0_defaults",
             "message": (
                 "Balanced (max-NPV) pathway delivers less year-15 carbon "
-                "reduction than Conservative at this scenario — a "
-                "consequence of zero carbon price and zero grant in the "
-                "v0 default. With the £75/tCO2e + 30% IETF-grant overlay "
-                "applied, Balanced typically reverts to the "
-                "highest-reduction-with-positive-NPV pathway. The "
-                "renderer should flag this inversion in the executive "
-                "summary so a senior reader doesn't mistake "
-                "'Balanced 1.6%' for engine failure."
+                "reduction than Conservative at this scenario" + tail
+                + " The renderer should flag this inversion in the "
+                "executive summary so a senior reader doesn't mistake "
+                "the labels for engine failure."
             ),
         })
 
