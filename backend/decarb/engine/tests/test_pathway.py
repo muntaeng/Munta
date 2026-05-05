@@ -406,6 +406,32 @@ class TestDairyPathway:
         codes = {w.get("code") for w in dairy_pathway["warnings"]}
         assert "retained_gas_backup_active" in codes
 
+    def test_sensitivity_warning_declared(self, dairy_pathway):
+        """Reviewer iter-2 issue #1: methodology §3.6 specifies
+        sensitivity outputs that v0 doesn't yet compute. The omission
+        must be declared as a top-level warning, not silently absent."""
+        codes = {w.get("code") for w in dairy_pathway["warnings"]}
+        assert "sensitivity_not_yet_computed" in codes
+
+    def test_capex_flat_rate_warning_declared(self, dairy_pathway):
+        """Reviewer iter-2 issue #2: flat-rate capex curves are a v0
+        limitation; declare as warning per the Reviewer's accepted
+        option (b) ('declare or fix')."""
+        codes = {w.get("code") for w in dairy_pathway["warnings"]}
+        assert "capex_flat_rate_v0" in codes
+
+    def test_balanced_underperforms_warning_under_defaults(self, dairy_pathway):
+        """Reviewer iter-2 issue #3: under v0 defaults, Balanced (max
+        NPV) lands on a near-do-nothing pathway with year-15 reduction
+        < Conservative. The inversion must be surfaced as a top-level
+        advisory so the renderer can flag it in §1 instead of leaving
+        the senior reader to discover it."""
+        bal = dairy_pathway["pathways"]["balanced"]
+        cons = dairy_pathway["pathways"]["conservative"]
+        if bal["year_15_reduction_pct"] < cons["year_15_reduction_pct"] - 1e-6:
+            codes = {w.get("code") for w in dairy_pathway["warnings"]}
+            assert "balanced_underperforms_conservative_under_v0_defaults" in codes
+
     def test_high_temp_hp_candidate_present_when_actionable(self, dairy_pathway):
         """Reviewer iter-1 issue #3: when industrial_heat_pump_high_temp
         is in the actionable pool (shortlist + pending_grid), the

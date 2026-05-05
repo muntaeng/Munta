@@ -1065,6 +1065,70 @@ def optimise_investment_pathway(
             ),
         })
 
+    # Reviewer iter-2 issue #3: under v0 defaults (carbon=0, grant=0)
+    # the "max NPV" pick lands on a near-do-nothing WHR-only pathway,
+    # so Balanced.year_15 < Conservative.year_15. Honest output, but
+    # the labelling reads counter-intuitively without context. Surface
+    # the inversion explicitly so the renderer can flag it in §1.
+    if (
+        pathways.get("balanced") and pathways.get("conservative")
+        and pathways["balanced"]["year_15_reduction_pct"]
+            < pathways["conservative"]["year_15_reduction_pct"] - 1e-6
+    ):
+        warnings_out.append({
+            "severity": "advisory",
+            "code": "balanced_underperforms_conservative_under_v0_defaults",
+            "message": (
+                "Balanced (max-NPV) pathway delivers less year-15 carbon "
+                "reduction than Conservative at this scenario — a "
+                "consequence of zero carbon price and zero grant in the "
+                "v0 default. With the £75/tCO2e + 30% IETF-grant overlay "
+                "applied, Balanced typically reverts to the "
+                "highest-reduction-with-positive-NPV pathway. The "
+                "renderer should flag this inversion in the executive "
+                "summary so a senior reader doesn't mistake "
+                "'Balanced 1.6%' for engine failure."
+            ),
+        })
+
+    # Reviewer iter-2 issue #1: methodology §3.6 lists "Sensitivity to
+    # electricity price, gas price, grant outcome" + CVaR-90% as
+    # required per-pathway outputs. v0 doesn't yet run the sweep —
+    # declare explicitly rather than leave silently absent.
+    warnings_out.append({
+        "severity": "medium",
+        "code": "sensitivity_not_yet_computed",
+        "message": (
+            "Per-pathway sensitivity sweeps (electricity ±20%, gas ±20%, "
+            "grant 0/30/50%) and risk-adjusted NPV (CVaR @ 90%) are "
+            "deferred to v0.2 alongside the stochastic MILP optimiser. "
+            "Manually overlay sensitivities by re-running with perturbed "
+            "ets_allowance_price_gbp_per_tco2e / ietf_grant_fraction / "
+            "market_signals until the v0.2 release."
+        ),
+    })
+
+    # Reviewer iter-2 issue #2: capex curves are flat £/kW with no
+    # equipment-class breakpoint. IETF Phase 3 award schedule shows
+    # NH3 HPs at £1,200-£1,500/kW thermal at 1-3 MW scale, dropping
+    # to £800-£1,000/kW at 5+ MW. v0 uses £800/kW flat — at the
+    # optimistic end of the published evidence.
+    warnings_out.append({
+        "severity": "medium",
+        "code": "capex_flat_rate_v0",
+        "message": (
+            "Capex curves are flat £/kW with no size-dependent "
+            "breakpoint. IETF Phase 3 award schedule data (DESNZ 2024) "
+            "indicates real industrial NH3 HP capex spans £800-£1,500/kW "
+            "thermal across the 1-5 MW range; the v0 flat £800/kW sits "
+            "at the optimistic edge. A ±30% capex envelope shifts "
+            "balanced NPV by approximately £500k under default tariffs "
+            "for dairy_5mw — material for a senior decision. v0.2 will "
+            "introduce a two-segment piecewise (£1,400/kW for <2 MW, "
+            "£900/kW for ≥2 MW) with explicit row-level citations."
+        ),
+    })
+
     # Equipment-ageing limitation flag
     warnings_out.append({
         "severity": "advisory",
