@@ -81,6 +81,22 @@ _EQUIPMENT_LIFETIME_YEARS: dict[str, int] = {
 }
 
 
+# Carbon-pricing and grant defaults. Both default to 0.0 in v0 — the v0
+# release surfaces the absence as a top-level warning rather than baking
+# a particular forecast in. Senior FN reviewer overlays a sensitivity
+# manually until v0.2.
+#
+# - ETS / shadow-carbon price: HM Treasury Green Book central forecast
+#   for the appraisal carbon value lands at ~£75/tCO2e for 2026 (DESNZ
+#   2024 update). UK ETS forward 2026 has traded £40-£90/tCO2e in the
+#   current cycle. Default 0.0 keeps v0 conservative; tests run with
+#   an explicit £75 to validate the engineering target.
+# - IETF grant fraction: typical Phase-3 awards land 30–50% of capex
+#   for HP-led pathways. Default 0.0; tests run 0.30 to validate.
+_DEFAULT_ETS_PRICE_GBP_PER_TCO2E = 0.0
+_DEFAULT_IETF_GRANT_FRACTION = 0.0
+
+
 # ---------------------------------------------------------------------------
 # Pathway-action data classes
 # ---------------------------------------------------------------------------
@@ -125,28 +141,18 @@ def _stack_at_year(
     """Build the dispatch technology stack as it stands at the *start* of
     planning year `year_idx` (0-indexed). All actions with action.year ≤
     year_idx are installed; the retained gas backup is appended if the site
-    declares must_keep_steam_backup."""
-    stack: list[dict[str, Any]] = []
-    for a in actions:
-        if a.year <= year_idx:
-            # Each action's config is reusable as-is in dispatch.
-            stack.append(dict(a.config))
-
+    declares must_keep_steam_backup. (must_keep_steam_backup is True for
+    every site brief shipping in v0; the False branch is a future-only
+    case and not exercised today.)"""
+    stack: list[dict[str, Any]] = [
+        dict(a.config) for a in actions if a.year <= year_idx
+    ]
     if must_keep_steam_backup:
         stack.append({
             "type": "gas_boiler",
             "id": "retained_gas",
             "capacity_kw": gas_backup_capacity_kw,
             "efficiency": 0.85,
-            "serves_end_uses": ["steam", "hot_water"],
-        })
-    elif not stack:
-        # If no installed capacity AND gas not retained, stack is empty —
-        # dispatch will return a no-dispatched-demand result. Add a small gas
-        # placeholder to keep dispatch valid.
-        stack.append({
-            "type": "gas_boiler", "id": "placeholder_gas",
-            "capacity_kw": gas_backup_capacity_kw, "efficiency": 0.85,
             "serves_end_uses": ["steam", "hot_water"],
         })
     return stack
@@ -254,6 +260,29 @@ def _hp_config_mid_temp(capacity_kw: float, requires_grid: bool = False) -> dict
     }
 
 
+def _hp_config_high_temp(capacity_kw: float, requires_grid: bool = True) -> dict[str, Any]:
+    """High-temperature HP candidate (NH3 cascade / R744 transcritical).
+    Sink 125°C is the realistic single-stage / cascade upper bound for
+    NH3+R744 in 2026; multi-stage to 145°C in v0.2 alongside transcritical
+    CO2. Declares serves_end_uses=['steam','hot_water'] — the dispatch
+    sink-temperature guard will reject 175°C-steam service at 125°C sink
+    (per BS EN 14825 5K LMTD). That rejection is now propagated to the
+    top-level pathway warnings (per Reviewer iter-1 issue #2/#3) so a
+    senior reader sees *why* high-temp HP can't electrify dairy steam,
+    rather than the fact being silently absent."""
+    return {
+        "type": "heat_pump",
+        "id": f"hp_high_{int(capacity_kw)}",
+        "capacity_kw_thermal": capacity_kw,
+        "refrigerant": "Ammonia",
+        "compressor_type": "screw",
+        "source_type": "waste_heat",
+        "source_temp_c": 35.0,
+        "sink_temp_c": 125.0,                # NH3 cascade ceiling (2026)
+        "serves_end_uses": ["steam", "hot_water"],
+    }
+
+
 def _electrode_config(capacity_kw: float) -> dict[str, Any]:
     return {
         "type": "electrode_boiler",
@@ -306,12 +335,14 @@ def _generate_candidates(
 
     actionable = shortlist_ids | pending_grid_ids
     has_mid_hp = "industrial_heat_pump_mid_temp" in actionable
+    has_high_hp = "industrial_heat_pump_high_temp" in actionable
     has_eb = "electrode_boiler_steam" in actionable
     has_tes = "thermal_energy_storage" in actionable or "thermal_energy_storage_hot" in actionable
     has_whr = any(t.startswith("waste_heat_recovery") for t in actionable)
 
     eb_requires_grid = "electrode_boiler_steam" in pending_grid_ids
     hp_requires_grid = "industrial_heat_pump_mid_temp" in pending_grid_ids
+    high_hp_requires_grid = "industrial_heat_pump_high_temp" in pending_grid_ids
 
     candidates: list[_PathwayCandidate] = []
 
@@ -355,6 +386,30 @@ def _generate_candidates(
             config=_whr_config(1_000.0),
         ))
     candidates.append(_PathwayCandidate("aggressive_anchor", agg_actions))
+
+    # ---------------- High-temperature HP candidate ----------------
+    # Honest engineering: include a high-temp HP option whenever the
+    # screening allowed industrial_heat_pump_high_temp into the actionable
+    # pool. The B0 dispatch sink-temperature guard will reject this for
+    # 175°C steam at 125°C sink — but the rejection now surfaces in the
+    # top-level pathway warnings, making the "we tried HP for steam and
+    # the physics rejects it" case visible to the senior reviewer
+    # (per Reviewer iter-1 issue #3).
+    if has_high_hp:
+        for cap in (1_000.0, 2_000.0):
+            high_hp_actions: list[_Action] = [_Action(
+                year=0, tech_kind="heat_pump_high_temp", capacity=cap,
+                config=_hp_config_high_temp(cap, high_hp_requires_grid),
+                requires_grid_decision=high_hp_requires_grid,
+            )]
+            if has_tes:
+                high_hp_actions.append(_Action(
+                    year=1, tech_kind="thermal_storage", capacity=8_000.0,
+                    config=_tes_config(8_000.0),
+                ))
+            candidates.append(_PathwayCandidate(
+                f"high_temp_hp_{int(cap)}kW", high_hp_actions,
+            ))
 
     # ---------------- Sweep: HP × EB × TES capacity / timing combinations ---
     # Trimmed to keep total candidates ≤ ~50 per the methodology (§3.6:
@@ -427,6 +482,8 @@ def _evaluate_pathway(
     must_keep_steam_backup: bool,
     gas_backup_capacity_kw: float,
     dispatch_cache: dict[tuple, dict],
+    ets_price_gbp_per_t: float = 0.0,
+    grant_fraction: float = 0.0,
 ) -> dict[str, Any] | None:
     """Run one candidate end-to-end through dispatch × horizon and return a
     consolidated metric record. Returns None on dispatch failure (e.g. all
@@ -444,17 +501,27 @@ def _evaluate_pathway(
     annual_thermal_kwh: list[float] = []
     capex_total = 0.0
 
-    # Sum capex into install year, opex into install year and every later year.
+    # Sum capex into install year (net of grant offset), opex into install
+    # year and every later year. Grant fraction reduces capex_per_year and
+    # capex_total but not opex.
+    grant_factor = max(0.0, 1.0 - float(grant_fraction))
     for a in candidate.actions:
-        cx = _capex_for_action(a)
+        cx_gross = _capex_for_action(a)
+        cx_net = cx_gross * grant_factor
         if a.year < horizon_years:
-            capex_per_year[a.year] += cx
-        capex_total += cx
+            capex_per_year[a.year] += cx_net
+        capex_total += cx_net
         annual_opex = _annual_opex_for_action(a)
         for y in range(a.year, horizon_years):
             opex_per_year[y] += annual_opex
 
-    sink_warning_codes_seen: set[str] = set()
+    # Sink-temperature warnings observed during this pathway's dispatch
+    # runs. Per Reviewer iter-1 issue #2: NOT a private "_-prefixed" field;
+    # propagated into the top-level optimiser warnings so a senior reader
+    # sees that pathway X's HP capacity is physics-blocked for some end
+    # uses.
+    sink_warnings_seen: list[dict[str, Any]] = []
+    seen_codes_for_dedup: set[str] = set()
 
     def _stack_signature(stack: list[dict]) -> tuple:
         """Hashable signature for caching equivalent stacks."""
@@ -487,15 +554,21 @@ def _evaluate_pathway(
             )
             dispatch_cache[sig] = d
 
-        # Surface but don't abort on sink-warnings — they're caught by the
-        # B0 dispatch guard and HP duty has already been zeroed where invalid.
+        # Don't abort on sink-warnings — B0 has zeroed the offending HP duty
+        # already — but DO capture them, deduplicated, for top-level
+        # propagation.
         for w in d.get("warnings", []):
             code = w.get("code", "")
             if code in (
                 "hp_sink_too_cold_for_end_use",
                 "hp_inactive_no_compatible_end_use",
-            ):
-                sink_warning_codes_seen.add(code)
+            ) and code not in seen_codes_for_dedup:
+                seen_codes_for_dedup.add(code)
+                sink_warnings_seen.append({
+                    "code": code,
+                    "severity": w.get("severity", "high"),
+                    "message": w.get("message", ""),
+                })
 
         annual_dispatch_costs.append(
             float(d.get("annual_summary", {}).get("total_energy_cost_gbp", 0.0))
@@ -507,25 +580,40 @@ def _evaluate_pathway(
             float(d.get("annual_summary", {}).get("total_heat_delivered_kwh", 0.0))
         )
 
-    # Year-by-year cashflows: savings - capex - opex.
+    # Year-by-year cashflows.
+    # cashflow_y = energy_savings_y + carbon_value_y - capex_y - opex_y
+    # carbon_value_y = (baseline_carbon_y - pathway_carbon_y) × ets_price.
+    # This treats the ETS / shadow-carbon price as a savings revenue
+    # (HM Treasury Green Book §6 conventions for non-traded sectors).
     cashflows: list[float] = []
     for y in range(horizon_years):
         savings = baseline_annual_cost_gbp_per_year[y] - annual_dispatch_costs[y]
-        cashflows.append(savings - capex_per_year[y] - opex_per_year[y])
+        carbon_abated_y = max(
+            0.0, baseline_annual_carbon_t_per_year[y] - annual_carbon_t[y]
+        )
+        carbon_value_y = carbon_abated_y * ets_price_gbp_per_t
+        cashflows.append(
+            savings + carbon_value_y - capex_per_year[y] - opex_per_year[y]
+        )
 
     npv = _npv(cashflows, discount_rate)
     irr = _irr_brentq(cashflows)
 
-    # Year-1 savings used for simple payback (year 1 = first full operational year
-    # after the year-0 capex hit). Use horizon[1] if available, else horizon[0].
-    if horizon_years > 1:
-        annual_savings_y1 = (
-            baseline_annual_cost_gbp_per_year[1] - annual_dispatch_costs[1] - opex_per_year[1]
-        )
-    else:
-        annual_savings_y1 = (
-            baseline_annual_cost_gbp_per_year[0] - annual_dispatch_costs[0] - opex_per_year[0]
-        )
+    # Year-1 savings used for simple payback (year 1 = first full
+    # operational year after the year-0 capex hit). Use horizon[1] if
+    # available, else horizon[0]. Includes carbon value to be consistent
+    # with the cashflow definition above.
+    pb_year = 1 if horizon_years > 1 else 0
+    pb_carbon_value = max(
+        0.0,
+        baseline_annual_carbon_t_per_year[pb_year] - annual_carbon_t[pb_year],
+    ) * ets_price_gbp_per_t
+    annual_savings_y1 = (
+        baseline_annual_cost_gbp_per_year[pb_year]
+        - annual_dispatch_costs[pb_year]
+        + pb_carbon_value
+        - opex_per_year[pb_year]
+    )
     simple_payback = _simple_payback_years(capex_total, annual_savings_y1)
     discounted_payback = _discounted_payback_years(cashflows, discount_rate)
 
@@ -580,11 +668,23 @@ def _evaluate_pathway(
         "annual_opex_year1_gbp": round(opex_per_year[0], 0),
         "npv_gbp": round(npv, 0),
         "irr": round(irr, 4) if irr is not None else None,
+        "irr_unrecoverable_reason": (
+            None if irr is not None
+            else "Cashflows monotone-negative or never cross zero — IRR undefined."
+        ),
         "simple_payback_years": (
             round(simple_payback, 2) if simple_payback is not None else None
         ),
+        "simple_payback_unrecoverable_reason": (
+            None if simple_payback is not None
+            else "Year-1 net savings ≤ 0 — payback period undefined."
+        ),
         "discounted_payback_years": (
             round(discounted_payback, 2) if discounted_payback is not None else None
+        ),
+        "discounted_payback_unrecoverable_reason": (
+            None if discounted_payback is not None
+            else "Cumulative discounted cashflow does not cross zero within the horizon."
         ),
         "lcoh_gbp_per_mwh": (
             round(lcoh_gbp_per_mwh, 1) if lcoh_gbp_per_mwh is not None else None
@@ -595,7 +695,7 @@ def _evaluate_pathway(
         "annual_dispatch_cost_gbp": [round(c, 0) for c in annual_dispatch_costs],
         "annual_pathway_carbon_t_co2e": [round(c, 1) for c in annual_carbon_t],
         "requires_grid_decision": requires_grid_decision,
-        "_sink_warning_codes": sorted(sink_warning_codes_seen),
+        "sink_warnings": sink_warnings_seen,
     }
 
 
@@ -606,22 +706,38 @@ def _evaluate_pathway(
 
 def _pareto_frontier(
     evaluated: list[dict[str, Any]],
+    *,
+    cost_axis: str = "capex_total_gbp",
 ) -> list[dict[str, Any]]:
-    """Return the cost-vs-carbon Pareto frontier.
+    """Return the (cost, carbon-abated) Pareto frontier under one of:
 
-    A pathway dominates another if it is no worse on capex AND no worse on
-    cumulative carbon abated, and strictly better on at least one. The
-    frontier is the non-dominated set, sorted by capex ascending.
+      cost_axis="capex_total_gbp" — the lay client's cost view. Lower
+        is better; sorted ascending. (As shipped in iter 1.)
+      cost_axis="lifetime_cost_gbp" — the senior engineer's view: PV
+        of all costs minus PV of all savings = -NPV. Lower is better;
+        sorted ascending. Per Reviewer iter-1 issue #5, methodology
+        §3.6 specifies "cost vs carbon" in a 15-yr techno-economic
+        appraisal sense.
+
+    A pathway dominates another if it is no worse on cost AND no worse
+    on cumulative carbon abated, and strictly better on at least one.
+    The frontier is the non-dominated set, sorted by cost ascending.
     """
     if not evaluated:
         return []
 
-    sorted_by_capex = sorted(
-        evaluated, key=lambda e: (e["capex_total_gbp"], -e["cumulative_carbon_abated_t_co2e"]),
+    def _cost(e: dict[str, Any]) -> float:
+        if cost_axis == "lifetime_cost_gbp":
+            # Lifetime cost = -NPV. Lower is better.
+            return -float(e.get("npv_gbp", 0.0))
+        return float(e.get(cost_axis, e.get("capex_total_gbp", 0.0)))
+
+    sorted_by_cost = sorted(
+        evaluated, key=lambda e: (_cost(e), -e["cumulative_carbon_abated_t_co2e"]),
     )
     frontier: list[dict[str, Any]] = []
-    best_carbon = -1.0
-    for e in sorted_by_capex:
+    best_carbon = -float("inf")
+    for e in sorted_by_cost:
         if e["cumulative_carbon_abated_t_co2e"] > best_carbon:
             frontier.append(e)
             best_carbon = e["cumulative_carbon_abated_t_co2e"]
@@ -642,6 +758,8 @@ def optimise_investment_pathway(
     base_year: int = 2026,
     horizon_years: int | None = None,
     discount_rate: float | None = None,
+    ets_allowance_price_gbp_per_tco2e: float | None = None,
+    ietf_grant_fraction: float | None = None,
 ) -> dict[str, Any]:
     """Brute-force enumerate candidate decarbonisation pathways and return
     Conservative / Balanced / Aggressive picks plus the cost-vs-carbon
@@ -669,6 +787,16 @@ def optimise_investment_pathway(
     capex_budget = float(constraints.get("capex_budget_gbp", 5_000_000.0))
     must_keep_gas = bool(constraints.get("must_keep_steam_backup", True))
     market = {**DEFAULT_MARKET_SIGNALS, **(market_signals or {})}
+    ets_price = float(
+        ets_allowance_price_gbp_per_tco2e
+        if ets_allowance_price_gbp_per_tco2e is not None
+        else market.get("ets_allowance_price_gbp_per_tco2e", _DEFAULT_ETS_PRICE_GBP_PER_TCO2E)
+    )
+    grant_frac = float(
+        ietf_grant_fraction
+        if ietf_grant_fraction is not None
+        else market.get("ietf_grant_fraction", _DEFAULT_IETF_GRANT_FRACTION)
+    )
 
     # Existing gas backup capacity (sum across all gas boilers in the site)
     gas_backup_kw = 0.0
@@ -749,24 +877,68 @@ def optimise_investment_pathway(
             must_keep_steam_backup=must_keep_gas,
             gas_backup_capacity_kw=gas_backup_kw,
             dispatch_cache=dispatch_cache,
+            ets_price_gbp_per_t=ets_price,
+            grant_fraction=grant_frac,
         )
         if rec is not None:
             evaluated.append(rec)
 
     # ---- Pick the three named pathways ----------------------------------
+    # Selection rules (per Reviewer iter-1 issue #1 — Conservative MUST
+    # differ from Balanced; the methodology promises three distinct
+    # scenarios, not three labels for the same option):
+    #
+    #   Balanced     = max NPV across the feasible set (the lay senior
+    #                  reader's "best value" pick).
+    #   Conservative = max year-15 reduction subject to NPV ≥ best_NPV − Δ
+    #                  AND capex ≤ 25% of budget. The "small-capex carbon
+    #                  leader still close to NPV-best" — answers "what's
+    #                  the most carbon I can buy without compromising the
+    #                  Balanced economics". Δ = max(£500k, 25% × |best NPV|).
+    #   Aggressive   = max year-15 reduction subject to capex ≤ budget.
+    #                  The all-out carbon-leader, no NPV constraint.
     pathways: dict[str, Any] = {}
     if evaluated:
-        # Conservative: lowest capex among those with positive year-15 reduction
-        cons_candidates = [e for e in evaluated if e["year_15_reduction_pct"] > 0]
-        cons_candidates = cons_candidates or evaluated
-        conservative = min(cons_candidates, key=lambda e: e["capex_total_gbp"])
-        pathways["conservative"] = {**conservative, "name": "conservative"}
-
-        # Balanced: highest NPV in the feasible set
         balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+        best_npv = balanced["npv_gbp"]
+        delta = max(500_000.0, 0.25 * abs(best_npv))
+
+        small_capex_cap = 0.25 * capex_budget
+        cons_pool = [
+            e for e in evaluated
+            if e["capex_total_gbp"] <= small_capex_cap
+            and e["npv_gbp"] >= best_npv - delta
+            and e["year_15_reduction_pct"] > 0
+        ]
+        # Fallbacks if no candidate satisfies both constraints:
+        # 1. Relax the small-capex cap to 50% of budget
+        # 2. Relax further to "any pathway with positive reduction and
+        #    NPV-near-best", picking smallest capex
+        # 3. Last resort: smallest-capex pathway with positive reduction
+        if not cons_pool:
+            cons_pool = [
+                e for e in evaluated
+                if e["capex_total_gbp"] <= 0.5 * capex_budget
+                and e["npv_gbp"] >= best_npv - delta
+                and e["year_15_reduction_pct"] > 0
+            ]
+        if not cons_pool:
+            cons_pool = [
+                e for e in evaluated
+                if e["year_15_reduction_pct"] > 0
+                and e["npv_gbp"] >= best_npv - delta
+            ]
+        if not cons_pool:
+            cons_pool = [e for e in evaluated if e["year_15_reduction_pct"] > 0]
+        if not cons_pool:
+            cons_pool = evaluated
+        conservative = max(
+            cons_pool,
+            key=lambda e: (e["year_15_reduction_pct"], -e["capex_total_gbp"]),
+        )
+        pathways["conservative"] = {**conservative, "name": "conservative"}
         pathways["balanced"] = {**balanced, "name": "balanced"}
 
-        # Aggressive: highest year-15 reduction within budget
         aggressive = max(evaluated, key=lambda e: e["year_15_reduction_pct"])
         pathways["aggressive"] = {**aggressive, "name": "aggressive"}
     else:
@@ -777,7 +949,121 @@ def optimise_investment_pathway(
         })
         pathways = {"conservative": None, "balanced": None, "aggressive": None}
 
-    pareto = _pareto_frontier(evaluated)
+    pareto_capex = _pareto_frontier(evaluated, cost_axis="capex_total_gbp")
+    pareto_npv = _pareto_frontier(evaluated, cost_axis="lifetime_cost_gbp")
+
+    # Warn if the three named pathways collapsed onto fewer than 3 distinct
+    # action sets — signals the candidate pool was too narrow or the
+    # carbon/grant overlay made the same pathway optimal under all rules.
+    def _action_signature(pw_record: dict | None) -> tuple | None:
+        if not pw_record:
+            return None
+        return tuple(sorted(
+            (a["tech_kind"], round(a["capacity"], 1), a["year_index"])
+            for a in pw_record.get("actions") or []
+        ))
+    sig_cons = _action_signature(pathways.get("conservative"))
+    sig_bal = _action_signature(pathways.get("balanced"))
+    sig_agg = _action_signature(pathways.get("aggressive"))
+    distinct_sigs = {s for s in (sig_cons, sig_bal, sig_agg) if s is not None}
+    if len(distinct_sigs) < 3 and evaluated:
+        warnings_out.append({
+            "severity": "advisory",
+            "code": "pathways_collapsed",
+            "message": (
+                f"{3 - len(distinct_sigs)} of the three named pathways "
+                "collapsed onto a duplicate action set — the candidate "
+                "pool admits fewer than three meaningfully different "
+                "trade-offs at this site under the current "
+                "carbon-price / grant configuration. Surface to the "
+                "senior reviewer; do not present duplicates as "
+                "distinct options."
+            ),
+        })
+
+    # Aggregate sink-temperature warnings observed across all pathway
+    # evaluations into the top-level warnings list (Reviewer iter-1 issue
+    # #2). One entry per (code, pathway-name) pair so the senior reader
+    # sees which named pathways are physics-blocked.
+    for name in ("conservative", "balanced", "aggressive"):
+        pw = pathways.get(name)
+        if not pw:
+            continue
+        for w in pw.get("sink_warnings") or []:
+            warnings_out.append({
+                "severity": w.get("severity", "high"),
+                "code": w.get("code", "hp_sink_warning"),
+                "pathway": name,
+                "message": (
+                    f"[{name} pathway] " + w.get("message", "")
+                ),
+            })
+    # Also propagate the dispatch sink-warning surfaced by any high-temp
+    # HP candidate even if it didn't make it into a named slot, to keep
+    # the failure-to-electrify-steam case visible.
+    for e in evaluated:
+        if e.get("name", "").startswith("high_temp_hp_") and e.get("sink_warnings"):
+            for w in e["sink_warnings"]:
+                warnings_out.append({
+                    "severity": w.get("severity", "high"),
+                    "code": w.get("code", "hp_sink_warning"),
+                    "pathway": e["name"],
+                    "message": (
+                        f"[{e['name']}] " + w.get("message", "")
+                        + " — confirms high-temperature HP cannot be used "
+                        "for 175°C steam at 125°C sink. v0.2 will add "
+                        "transcritical CO2 / cascade variants reaching "
+                        "145–160°C; 175°C steam remains out of single-stage HP envelope."
+                    ),
+                })
+                break  # one entry per high-temp candidate is enough
+            break
+
+    # Retained-gas-backup advisory (iter-1 issue #9): every pathway carries
+    # the must_keep_steam_backup gas boiler, which structurally caps year-15
+    # reduction.
+    if must_keep_gas:
+        warnings_out.append({
+            "severity": "advisory",
+            "code": "retained_gas_backup_active",
+            "message": (
+                f"Site declares must_keep_steam_backup; retained gas boiler "
+                f"capacity {gas_backup_kw / 1000.0:.1f} MW is included in every "
+                "pathway's stack. Steam peaks always go through gas — this caps "
+                "year-15 carbon reduction below 100% by construction."
+            ),
+        })
+
+    # Carbon-price / grant disclosure (iter-1 issue #4)
+    if ets_price <= 0.0 and grant_frac <= 0.0:
+        warnings_out.append({
+            "severity": "high",
+            "code": "carbon_price_and_grant_excluded",
+            "message": (
+                "v0 cashflow excludes both UK ETS / shadow-carbon price and "
+                "IETF grant uplift (ets_allowance_price_gbp_per_tco2e=0.0, "
+                "ietf_grant_fraction=0.0). Negative NPV across all pathways is "
+                "a direct consequence — published IETF case studies, CCC "
+                "scenarios and BS EN 16247-1 retrofit appraisals incorporate "
+                "both. Re-run with ets_allowance_price_gbp_per_tco2e in the "
+                "£40–£90/tCO2e UK ETS forward range and ietf_grant_fraction in "
+                "the 0.30–0.50 typical-award range to obtain an engineering-"
+                "target NPV. v0.2 will wire IETF eligibility detection into "
+                "lookup_grants and apply automatically."
+            ),
+        })
+    elif ets_price > 0.0 or grant_frac > 0.0:
+        warnings_out.append({
+            "severity": "advisory",
+            "code": "carbon_price_or_grant_applied",
+            "message": (
+                f"Cashflow includes ETS / shadow-carbon price "
+                f"£{ets_price:.0f}/tCO2e and IETF grant fraction "
+                f"{grant_frac:.0%}. Both are appraisal overlays — confirm the "
+                "site's actual ETS scope and IETF eligibility before "
+                "committing to the resulting NPV."
+            ),
+        })
 
     # Equipment-ageing limitation flag
     warnings_out.append({
@@ -806,10 +1092,14 @@ def optimise_investment_pathway(
         "base_year": base_year,
         "discount_rate_real": discount_rate,
         "capex_budget_gbp": capex_budget,
+        "ets_allowance_price_gbp_per_tco2e": ets_price,
+        "ietf_grant_fraction": grant_frac,
         "candidate_count": len(candidates),
         "evaluated_count": len(evaluated),
         "pathways": pathways,
-        "pareto_frontier": pareto,
+        "pareto_frontier": pareto_capex,                  # legacy alias = capex frontier
+        "pareto_frontier_capex_vs_carbon": pareto_capex,
+        "pareto_frontier_npv_vs_carbon": pareto_npv,
         "warnings": warnings_out,
         "method_reference": (
             "Brute-force enumeration of pathway candidates (capacity × timing "
