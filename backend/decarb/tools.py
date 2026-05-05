@@ -28,6 +28,7 @@ from decarb.engine.parse import parse_energy_profile as _parse_energy_profile
 from decarb.engine.carbon import compute_baseline_carbon as _compute_baseline_carbon
 from decarb.engine.dispatch import simulate_site_dispatch as _simulate_site_dispatch
 from decarb.engine.screen import screen_technologies as _screen_technologies
+from decarb.engine.pathway import optimise_investment_pathway as _optimise_investment_pathway
 from decarb.render import render_report as _render_report
 from decarb.corpus.db import get_conn, search_chunks
 from decarb.corpus.embed import embed_single, get_client as _get_embed_client
@@ -168,8 +169,61 @@ def compute_pinch_analysis(**kwargs: Any) -> dict[str, Any]:
 
 
 def optimise_investment_pathway(**kwargs: Any) -> dict[str, Any]:
-    """STUB. Implemented Week 2 — see week2_engine_modules.md §6."""
-    return {"_stub": True, "tool": "optimise_investment_pathway"}
+    """v0 brute-force pathway enumerator. Reads site_brief, screening,
+    energy_profile from accumulated site_context (the agent has run
+    parse_energy_profile + screen_technologies before this point); the
+    LLM-facing tool surface is therefore lean. Returns three named
+    pathways + Pareto frontier (compact view; full payload retained in
+    site_context.engine_results for the renderer)."""
+    site_brief = _site_context.get("site_brief")
+    bundle = _site_context.get("engine_results") or {}
+    energy_profile = bundle.get("parse_energy_profile") or _site_context.get("energy_profile")
+    screening = bundle.get("screen_technologies") or _site_context.get("screening")
+    if not site_brief or not energy_profile or not screening:
+        return {
+            "error": (
+                "optimise_investment_pathway needs site_brief, "
+                "parse_energy_profile and screen_technologies in site "
+                "context — run those tools first."
+            )
+        }
+    full = _optimise_investment_pathway(
+        site_brief=site_brief,
+        screening=screening,
+        energy_profile=energy_profile,
+        base_year=int(kwargs.get("base_year", 2026)),
+        horizon_years=kwargs.get("horizon_years"),
+        discount_rate=kwargs.get("discount_rate"),
+    )
+    _record_engine_output("optimise_investment_pathway", full)
+    # Compact LLM-facing summary
+    pathways = full.get("pathways") or {}
+    return {
+        "candidate_count": full.get("candidate_count"),
+        "evaluated_count": full.get("evaluated_count"),
+        "pareto_count": len(full.get("pareto_frontier") or []),
+        "pathways": {
+            name: ({
+                "capex_total_gbp": pw.get("capex_total_gbp"),
+                "npv_gbp": pw.get("npv_gbp"),
+                "irr": pw.get("irr"),
+                "simple_payback_years": pw.get("simple_payback_years"),
+                "year_15_reduction_pct": pw.get("year_15_reduction_pct"),
+                "cumulative_carbon_abated_t_co2e": pw.get("cumulative_carbon_abated_t_co2e"),
+                "requires_grid_decision": pw.get("requires_grid_decision"),
+                "actions": [
+                    {"year_index": a["year_index"],
+                     "tech_kind": a["tech_kind"],
+                     "capacity": a["capacity"],
+                     "capacity_unit": a["capacity_unit"],
+                     "capex_gbp": a["capex_gbp"]}
+                    for a in (pw.get("actions") or [])
+                ],
+            } if pw else None)
+            for name, pw in pathways.items()
+        },
+        "warning_codes": [w.get("code") for w in full.get("warnings", [])],
+    }
 
 
 def monte_carlo_uncertainty(**kwargs: Any) -> dict[str, Any]:
@@ -434,17 +488,26 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "optimise_investment_pathway",
-        "description": "STUB Week 2. Multi-period MILP: optimal technology sequencing over planning horizon.",
+        "description": (
+            "v0 brute-force enumeration of decarbonisation pathways over a "
+            "planning horizon. Reads site_brief, screening shortlist + "
+            "pending-grid set, and the parsed energy profile from accumulated "
+            "site context (no payloads passed by the agent). For every "
+            "candidate it runs simulate_site_dispatch year-by-year and "
+            "computes NPV, IRR, simple/discounted payback, LCOH, and year-15 "
+            "carbon reduction. Returns three named pathways (Conservative / "
+            "Balanced / Aggressive) plus the cost-vs-carbon Pareto frontier. "
+            "Capex envelope from site.constraints.capex_budget_gbp is a hard "
+            "filter. Equipment ageing not modelled in v0 (declared in warnings)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "shortlisted_tech_ids": {"type": "array", "items": {"type": "string"}, "description": "Technology IDs from screening"},
-                "planning_horizon_years": {"type": "integer", "default": 15},
-                "capex_budget_gbp": {"type": "number"},
-                "discount_rate": {"type": "number", "default": 0.08},
-                "scenarios": {"type": "array", "items": {"type": "string"}, "description": "e.g. ['conservative', 'balanced', 'aggressive']"},
+                "base_year": {"type": "integer", "default": 2026, "description": "Calendar year of planning year 0."},
+                "horizon_years": {"type": "integer", "description": "Planning horizon in years; defaults to site.constraints.planning_horizon_years."},
+                "discount_rate": {"type": "number", "description": "Real discount rate; defaults to site.constraints.discount_rate_real."},
             },
-            "required": ["shortlisted_tech_ids"],
+            "required": [],
         },
     },
     {
