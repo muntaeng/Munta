@@ -173,13 +173,100 @@ these enter the shortlist.
 
 ---
 
+{% if pathway and pathway.pathways %}
+## §4 Pathway Analysis  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
+
+The investment-pathway optimiser enumerated **{{ pathway.candidate_count }}** candidate pathways (capex-budget filtered, evaluated through {{ pathway.planning_horizon_years }}-year dispatch × dispatch). Three named pathways and two Pareto frontiers (capex-vs-carbon, NPV-vs-carbon) are reported below. Method reference: {{ pathway.method_reference }}
+
+Method context (every number traces to a deterministic engine call):
+
+- Discount rate: {{ pathway.discount_rate_real|fmt_pct }} real (HM Treasury Green Book convention).
+- Capex budget envelope: £{{ pathway.capex_budget_gbp|fmt_int }} (hard filter).
+- Carbon price applied to cashflow: £{{ pathway.ets_allowance_price_gbp_per_tco2e|fmt_float(0) }}/tCO₂e.
+- IETF grant fraction applied to capex: {{ pathway.ietf_grant_fraction|fmt_pct }}.
+- Equipment ageing & end-of-life replacement: NOT modelled in v0 (warning emitted).
+- Stochastic MILP: deferred to v0.2 (current release uses brute-force enumeration).
+
+### §4.1 Three named pathways
+
+{% for name in ['conservative', 'balanced', 'aggressive'] %}
+{% set pw = pathway.pathways.get(name) %}
+{% if pw %}
+**{{ name|capitalize }}** {% if pw.requires_grid_decision %}— ⚠️ requires DNO reinforcement decision{% endif %}
+
+| Metric | Value |
+|---|---:|
+| Capex (total, net of grant) | £{{ pw.capex_total_gbp|fmt_int }} |
+| NPV @ {{ pathway.discount_rate_real|fmt_pct }} | £{{ pw.npv_gbp|fmt_int }} |
+| IRR | {% if pw.irr is not none %}{{ pw.irr|fmt_pct }}{% else %}— ({{ pw.irr_unrecoverable_reason }}){% endif %} |
+| Simple payback (yr) | {% if pw.simple_payback_years is not none %}{{ pw.simple_payback_years }}{% else %}— ({{ pw.simple_payback_unrecoverable_reason }}){% endif %} |
+| Discounted payback (yr) | {% if pw.discounted_payback_years is not none %}{{ pw.discounted_payback_years }}{% else %}— ({{ pw.discounted_payback_unrecoverable_reason }}){% endif %} |
+| LCOH (£/MWh) | {{ pw.lcoh_gbp_per_mwh|fmt_float(1) }} |
+| Year-15 Scope 1+2 reduction | {{ pw.year_15_reduction_pct }}% |
+| Cumulative carbon abated (tCO₂e) | {{ pw.cumulative_carbon_abated_t_co2e|fmt_int }} |
+| Annual O&M (year-1) | £{{ pw.annual_opex_year1_gbp|fmt_int }} |
+
+*Action sequence:*
+{% if pw.actions %}
+| Year | Tech | Capacity | Capex (gross) | Lifetime |
+|---:|---|---:|---:|---:|
+{% for a in pw.actions %}
+| {{ a.calendar_year }} | {{ a.tech_kind|replace('_', ' ') }} (`{{ a.tech_id }}`) | {{ a.capacity|fmt_int }} {{ a.capacity_unit|replace('_', ' ') }} | £{{ a.capex_gbp|fmt_int }} | {{ a.lifetime_years }} yr |
+{% endfor %}
+{% else %}
+*No installs — baseline (do-nothing) reference pathway.*
+{% endif %}
+
+{% endif %}
+{% endfor %}
+
+### §4.2 Pareto frontier (cost vs carbon abated)
+
+Two frontiers per the senior-engineer / lay-client distinction (methodology §3.6):
+
+**By capex (lay-client view) — {{ pathway.pareto_frontier_capex_vs_carbon|length }} non-dominated entries:**
+
+| Rank | Capex (£) | Cumulative tCO₂e abated | NPV (£) | Year-15 reduction |
+|---:|---:|---:|---:|---:|
+{% for e in pathway.pareto_frontier_capex_vs_carbon %}
+| {{ loop.index }} | {{ e.capex_total_gbp|fmt_int }} | {{ e.cumulative_carbon_abated_t_co2e|fmt_int }} | {{ e.npv_gbp|fmt_int }} | {{ e.year_15_reduction_pct }}% |
+{% endfor %}
+
+**By NPV (senior-engineer view) — {{ pathway.pareto_frontier_npv_vs_carbon|length }} non-dominated entries:**
+
+| Rank | NPV (£) | Cumulative tCO₂e abated | Capex (£) | Year-15 reduction |
+|---:|---:|---:|---:|---:|
+{% for e in pathway.pareto_frontier_npv_vs_carbon %}
+| {{ loop.index }} | {{ e.npv_gbp|fmt_int }} | {{ e.cumulative_carbon_abated_t_co2e|fmt_int }} | {{ e.capex_total_gbp|fmt_int }} | {{ e.year_15_reduction_pct }}% |
+{% endfor %}
+
+### §4.3 Engine-flagged pathway warnings
+
+{% set pw_warning_codes = [] %}
+{% for w in pathway.warnings or [] %}
+{% set _ = pw_warning_codes.append(w) %}
+{% endfor %}
+{% if pw_warning_codes %}
+{% for w in pw_warning_codes %}
+- *[{{ w.severity }}/{{ w.code }}]*{% if w.pathway %} *(pathway: {{ w.pathway }})*{% endif %} {{ w.message }}
+{% endfor %}
+{% else %}
+*No pathway warnings raised.*
+{% endif %}
+
+### §4.4 Inner-loop dispatch (for the canonical hand-specified stack)
+
+The pathway optimiser's inner loop calls `simulate_site_dispatch` year-by-year. The §4.4 block below shows a single representative dispatch run against the canonical hand-specified stack (year 1 of the chosen pathway is similar in shape).
+
+{% else %}
 ## §4 Pathway Analysis  ![status](https://img.shields.io/badge/status-ROADMAP%20v0.2-orange)
 
-> **ROADMAP.** `optimise_investment_pathway` and `monte_carlo_uncertainty` are not implemented in v0. Once wired, this section will report three named scenarios (Conservative / Balanced / Aggressive), the Pareto frontier of cost-vs-carbon alternatives, year-by-year capex, NPV with P10/P50/P90 bands, IRR, simple and discounted payback, LCOH, and risk-adjusted NPV (CVaR @ 90%). See `plan/spike/week2_engine_modules.md` §6–§7.
+> **ROADMAP.** `optimise_investment_pathway` not yet wired into this run. The output below is the dispatch result for the hand-specified stack only — full pathway analysis (three named scenarios, dual Pareto frontiers, NPV/IRR/LCOH) requires the optimiser to be invoked.
 
 ### §4.1 v0 dispatch result for the proposed stack
 
 In place of an optimised pathway, the v0 engine simulates a single pre-specified technology stack against the parsed energy profile. Results below are from `simulate_site_dispatch` with policy `{{ dispatch.dispatch_policy }}`.
+{% endif %}
 
 #### Equipment utilisation
 

@@ -340,6 +340,11 @@ def render_report(**kwargs: Any) -> dict[str, Any]:
     carbon_result = bundle.get("compute_baseline_carbon")
     screen_result = bundle.get("screen_technologies")
     dispatch_result = bundle.get("simulate_site_dispatch")
+    # pathway_result is optional — when the agent has called
+    # optimise_investment_pathway before render_report, §4 renders the
+    # full pathway analysis; otherwise §4 falls back to the ROADMAP block
+    # plus the dispatch-only summary.
+    pathway_result = bundle.get("optimise_investment_pathway")
 
     missing = [
         name for name, val in (
@@ -368,6 +373,7 @@ def render_report(**kwargs: Any) -> dict[str, Any]:
         carbon_result=carbon_result,
         screen_result=screen_result,
         dispatch_result=dispatch_result,
+        pathway_result=pathway_result,
         format="markdown",
         include_appendices=include_appendices,
     )

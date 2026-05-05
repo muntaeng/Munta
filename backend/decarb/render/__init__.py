@@ -84,15 +84,20 @@ def _aggregate_provenance(
     carbon_result: dict,
     screen_result: dict,
     dispatch_result: dict,
+    pathway_result: dict | None = None,
 ) -> list[dict]:
     """Union of provenance lists, tagged by originating module."""
     out: list[dict] = []
-    for module_name, res in [
+    sources: list[tuple[str, dict | None]] = [
         ("parse_energy_profile", parse_result),
         ("compute_baseline_carbon", carbon_result),
         ("screen_technologies", screen_result),
         ("simulate_site_dispatch", dispatch_result),
-    ]:
+        ("optimise_investment_pathway", pathway_result),
+    ]
+    for module_name, res in sources:
+        if not res:
+            continue
         for entry in res.get("provenance", []) or []:
             tagged = {"module": module_name}
             tagged.update(entry)
@@ -105,12 +110,16 @@ def _aggregate_standards(
     carbon_result: dict,
     screen_result: dict,
     dispatch_result: dict,
+    pathway_result: dict | None = None,
 ) -> list[str]:
     """Deduplicated union of standards_cited lists, preserving first-seen order."""
     seen: set[str] = set()
     out: list[str] = []
-    for res in (parse_result, carbon_result, screen_result, dispatch_result):
-        for std in res.get("standards_cited", []) or []:
+    sources = [parse_result, carbon_result, screen_result, dispatch_result]
+    if pathway_result:
+        sources.append(pathway_result)
+    for res in sources:
+        for std in (res or {}).get("standards_cited", []) or []:
             if std not in seen:
                 seen.add(std)
                 out.append(std)
@@ -124,6 +133,7 @@ def render_report(
     carbon_result: dict,
     screen_result: dict,
     dispatch_result: dict,
+    pathway_result: dict | None = None,
     format: str = "markdown",
     include_appendices: bool = True,
     output_dir: Path | str | None = None,
@@ -151,10 +161,12 @@ def render_report(
     template = env.get_template(TEMPLATE_NAME)
 
     provenance = _aggregate_provenance(
-        parse_result, carbon_result, screen_result, dispatch_result
+        parse_result, carbon_result, screen_result, dispatch_result,
+        pathway_result,
     )
     standards = _aggregate_standards(
-        parse_result, carbon_result, screen_result, dispatch_result
+        parse_result, carbon_result, screen_result, dispatch_result,
+        pathway_result,
     )
 
     ts = timestamp or dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -164,6 +176,7 @@ def render_report(
         carbon=carbon_result,
         screen=screen_result,
         dispatch=dispatch_result,
+        pathway=pathway_result,
         provenance=provenance,
         standards=standards,
         include_appendices=include_appendices,
