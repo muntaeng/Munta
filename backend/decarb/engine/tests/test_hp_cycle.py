@@ -32,6 +32,22 @@ class TestPerformance:
         # CoolProp 7.x: single-stage NH3 at this lift gives lower COP due to high PR clamping
         assert 2.0 < cop < 4.5, f"NH3 low-lift COP_h out of expected range: {cop}"
 
+    def test_canonical_nh3_waste_heat_75c(self):
+        """NH3 single-stage screw, 35°C waste-heat source → 75°C sink.
+        Methodology cites COP_net ~4.15 for this case; lock 4.0-4.5 band so
+        the canonical reference can't drift silently. Used as the dispatch-
+        side reference point under merit_order policy."""
+        r = calculate_hp_cycle(
+            refrigerant="Ammonia",
+            process_evaporator_temp_c=35,
+            process_condenser_temp_c=75,
+            compressor_type="screw",
+        )
+        cop_net = r["performance"]["cop_heating_net_electrical"]
+        assert 4.0 <= cop_net <= 4.5, (
+            f"Canonical NH3 35->75°C screw COP_net out of band 4.0-4.5: {cop_net}"
+        )
+
     def test_ammonia_high_lift_warns(self):
         """NH3, evap 0°C, cond 90°C — discharge temp likely exceeds 130°C limit."""
         r = calculate_hp_cycle(

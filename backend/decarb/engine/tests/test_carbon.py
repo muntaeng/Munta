@@ -94,6 +94,109 @@ class TestDairyBaselineCarbon:
         assert "Scope 2 Guidance" in method
 
 
+class TestDairyCCL:
+    """CCL is reported as both gross-no-CCA and CCA-applied so a senior
+    reviewer can see the value of CCA participation. Numbers locked at the
+    HMRC reduced-rate fractions for 2024+ (engine emits exact applied rates
+    in the ccl_method narrative)."""
+
+    def test_ccl_applied_in_band(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="dairy_processing",
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        applied = ccl["ccl_liability_gbp_year"]
+        assert 23_000 <= applied <= 25_000, (
+            f"Dairy CCA-applied CCL £{applied} outside £23k–£25k band"
+        )
+
+    def test_ccl_gross_in_band(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="dairy_processing",
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        gross = ccl["ccl_gross_no_cca_gbp_year"]
+        assert 240_000 <= gross <= 250_000, (
+            f"Dairy gross-no-CCA CCL £{gross} outside £240k–£250k band"
+        )
+
+    def test_ccl_relief_self_consistent(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="dairy_processing",
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        gross = ccl["ccl_gross_no_cca_gbp_year"]
+        applied = ccl["ccl_liability_gbp_year"]
+        relief = ccl["ccl_relief_value_gbp_year"]
+        assert abs(gross - applied - relief) <= 1.0, (
+            f"CCL identity broken: gross {gross} - applied {applied} != relief {relief}"
+        )
+
+    def test_ccl_method_narrative_present(self, dairy_5mw):
+        """A senior reviewer must see the rate × kWh arithmetic spelled out."""
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="dairy_processing",
+        )
+        method = result["regulatory_exposure"]["ccl"]["ccl_method"]
+        assert "elec" in method.lower()
+        assert "gas" in method.lower()
+        assert "p/kWh" in method or "p/kwh" in method.lower()
+        assert "CCA reduced rates" in method
+
+    def test_ccl_no_cca_returns_gross_only(self, dairy_5mw):
+        """Without a CCA subsector the applied liability == gross."""
+        parsed = parse_energy_profile(dairy_5mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector=None,
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        assert ccl["cca_applied"] is False
+        assert ccl["ccl_liability_gbp_year"] == ccl["ccl_gross_no_cca_gbp_year"]
+        assert ccl["ccl_relief_value_gbp_year"] == 0
+
+
+class TestBreweryCCL:
+    def test_ccl_structural(self, brewery_8mw):
+        parsed = parse_energy_profile(brewery_8mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="brewing",
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        assert ccl["ccl_liability_gbp_year"] > 0
+        assert ccl["ccl_gross_no_cca_gbp_year"] > 0
+        assert ccl["ccl_liability_gbp_year"] < ccl["ccl_gross_no_cca_gbp_year"]
+
+
+class TestSoftDrinksCCL:
+    def test_ccl_structural(self, soft_drinks_12mw):
+        parsed = parse_energy_profile(soft_drinks_12mw)
+        result = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            cca_subsector="soft_drinks_bottling",
+        )
+        ccl = result["regulatory_exposure"]["ccl"]
+        assert ccl["ccl_liability_gbp_year"] > 0
+        assert ccl["ccl_gross_no_cca_gbp_year"] > 0
+        assert ccl["ccl_liability_gbp_year"] < ccl["ccl_gross_no_cca_gbp_year"]
+
+
 class TestBreweryBaselineCarbon:
     def test_total_scope_1_2_in_golden_range(self, brewery_8mw):
         """Golden: 14,800 tCO2e/yr ± 400."""

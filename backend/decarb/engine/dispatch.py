@@ -83,6 +83,15 @@ _MIN_DISPATCH_KW = 0.1
 # Energy balance tolerance
 _ENERGY_BALANCE_TOLERANCE_PCT = 0.5
 
+# Unmet-demand threshold above which dispatch is flagged HEAT_DEFICIT
+# (capacity-short, distinct from accounting error). Below this, BALANCED.
+_HEAT_DEFICIT_THRESHOLD_PCT = 0.5
+
+# Baseline gas-boiler thermal efficiency assumed when computing the
+# upper-bound carbon figure under HEAT_DEFICIT (matches existing fixtures'
+# 0.85 boiler eff and the methodology default).
+_BASELINE_GAS_BOILER_EFF = 0.85
+
 
 # ---------------------------------------------------------------------------
 # Helper: synthetic ambient temperature profile
@@ -145,6 +154,15 @@ def _build_cop_table(
     refrigerant = hp_config.get("refrigerant", "Ammonia")
     compressor_type = hp_config.get("compressor_type", "screw")
     capacity_kw = hp_config.get("capacity_kw_thermal", 1000.0)
+
+    _KNOWN_SOURCE_TYPES = {"ambient_air", "waste_heat"}
+    if source_type not in _KNOWN_SOURCE_TYPES:
+        raise ValueError(
+            f"Unknown HP source_type {source_type!r}. "
+            f"Supported: {sorted(_KNOWN_SOURCE_TYPES)}. "
+            "For waste-heat sources (chiller condenser, process flue, etc.), "
+            "use 'waste_heat' and pass source_temp_c."
+        )
 
     if source_type == "waste_heat":
         # Fixed source temperature — single CoolProp call
@@ -345,23 +363,34 @@ def _energy_balance_check(
     # Unmet is tracked separately; balance is checked on served portion only.
     served_demand = total_demand_kwh - unmet_kwh
     if served_demand <= 0:
-        return {
-            "total_demand_kwh": round(total_demand_kwh, 0),
-            "total_supply_kwh": round(total_supply, 0),
-            "unmet_demand_kwh": round(unmet_kwh, 0),
-            "imbalance_kwh": 0.0,
-            "imbalance_pct": 0.0,
-            "check_passed": True,
-        }
-    imbalance = abs(total_supply - served_demand)
-    imbalance_pct = imbalance / served_demand * 100.0
+        accounting_imbalance_pct = 0.0
+        imbalance = 0.0
+    else:
+        imbalance = abs(total_supply - served_demand)
+        accounting_imbalance_pct = imbalance / served_demand * 100.0
+
+    unmet_pct = (unmet_kwh / total_demand_kwh * 100.0) if total_demand_kwh > 0 else 0.0
+    accounting_ok = accounting_imbalance_pct < _ENERGY_BALANCE_TOLERANCE_PCT
+    deficit_ok = unmet_pct < _HEAT_DEFICIT_THRESHOLD_PCT
+
+    if accounting_ok and deficit_ok:
+        dispatch_status = "BALANCED"
+    elif accounting_ok and not deficit_ok:
+        # Capacity short — physically meaningful, not a bookkeeping bug.
+        dispatch_status = "HEAT_DEFICIT"
+    else:
+        # Supply ≠ demand even after accounting for unmet — genuine bug.
+        dispatch_status = "ACCOUNTING_ERROR"
+
     return {
         "total_demand_kwh": round(total_demand_kwh, 0),
         "total_supply_kwh": round(total_supply, 0),
         "unmet_demand_kwh": round(unmet_kwh, 0),
+        "unmet_demand_pct": round(unmet_pct, 2),
         "imbalance_kwh": round(imbalance, 1),
-        "imbalance_pct": round(imbalance_pct, 4),
-        "check_passed": imbalance_pct < _ENERGY_BALANCE_TOLERANCE_PCT,
+        "imbalance_pct": round(accounting_imbalance_pct, 4),
+        "dispatch_status": dispatch_status,
+        "check_passed": dispatch_status == "BALANCED",
     }
 
 
@@ -923,16 +952,43 @@ def simulate_site_dispatch(
         unmet_kwh=total_unmet,
     )
 
-    # Hard assertion on energy balance (code-level, not just test-level)
-    if balance["check_passed"] is False:
-        # Raise only if not caused by unmet demand (which is a capacity limitation, not a logic error)
-        if total_unmet < _MIN_DISPATCH_KW:
-            assert False, (
-                f"Energy balance failed: {balance['imbalance_pct']:.4f}% imbalance "
-                f"(tolerance {_ENERGY_BALANCE_TOLERANCE_PCT}%). "
-                f"supply={balance['total_supply_kwh']}, demand={balance['total_demand_kwh']}. "
-                "This indicates a bug in the dispatch accounting."
-            )
+    # Hard assertion on energy balance (code-level, not just test-level).
+    # Raises only on ACCOUNTING_ERROR (genuine bookkeeping bug). HEAT_DEFICIT
+    # is a real physical condition (capacity short) and flows through to the
+    # caller for surfacing in the report.
+    if balance["dispatch_status"] == "ACCOUNTING_ERROR":
+        assert False, (
+            f"Energy balance failed: {balance['imbalance_pct']:.4f}% imbalance "
+            f"(tolerance {_ENERGY_BALANCE_TOLERANCE_PCT}%). "
+            f"supply={balance['total_supply_kwh']}, demand={balance['total_demand_kwh']}. "
+            "This indicates a bug in the dispatch accounting."
+        )
+
+    # Heat-deficit upper-bound carbon: assumes the unmet thermal demand is
+    # closed by the retained gas boiler at η = 0.85 and DEFRA gas EF. The
+    # renderer surfaces this in §1; computed engine-side so the template
+    # remains arithmetic-free.
+    if balance["dispatch_status"] == "HEAT_DEFICIT":
+        closure_gas_input_kwh = total_unmet / _BASELINE_GAS_BOILER_EFF
+        additional_scope_1_t = closure_gas_input_kwh * gas_ef / 1000.0
+        deficit_analysis = {
+            "deficit_pct": round(balance["unmet_demand_pct"], 2),
+            "deficit_gwh": round(total_unmet / 1_000_000, 2),
+            "additional_scope_1_if_gas_closed_t_co2e": round(additional_scope_1_t, 1),
+            "scope_1_upper_bound_t_co2e": round(scope_1_t + additional_scope_1_t, 1),
+            "scope_1_2_upper_bound_t_co2e":
+                round(scope_1_t + scope_2_loc_t + additional_scope_1_t, 1),
+            "closure_assumption_boiler_eff": _BASELINE_GAS_BOILER_EFF,
+            "closure_assumption_gas_ef_kg_co2e_kwh": _GAS_EMISSION_FACTOR_KG_CO2E_PER_KWH,
+            "_method": (
+                f"Upper-bound assumes the unmet thermal demand is closed by "
+                f"the retained gas boiler at η = {_BASELINE_GAS_BOILER_EFF} "
+                f"and DEFRA 2026 natural-gas factor "
+                f"{_GAS_EMISSION_FACTOR_KG_CO2E_PER_KWH} kgCO2e/kWh."
+            ),
+        }
+    else:
+        deficit_analysis = None
 
     # ------------------------------------------------------------------
     # 11. Equipment utilisation
@@ -1063,6 +1119,7 @@ def simulate_site_dispatch(
             "gas_emission_factor_kg_co2e_kwh": round(gas_ef, 5),
         },
         "energy_balance": balance,
+        "deficit_analysis": deficit_analysis,
         "equipment_utilisation": equipment_utilisation,
         "hourly_dispatch_first_168h": hourly_sample,
         "cop_table": cop_table_provenance,

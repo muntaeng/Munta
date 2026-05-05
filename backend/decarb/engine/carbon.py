@@ -144,22 +144,54 @@ def compute_baseline_carbon(
         ),
     }
 
-    # CCL (Climate Change Levy)
+    # CCL (Climate Change Levy) — main rates 2026 (HMRC).
     ccl_main_rates_2026 = {
         "electricity_p_per_kwh": 0.775,
         "natural_gas_p_per_kwh": 0.388,
-        "lpg_p_per_kg": 1.241,
     }
-    ccl_liability_gbp = (
-        elec_kwh * ccl_main_rates_2026["electricity_p_per_kwh"] / 100
-        + gas_kwh * ccl_main_rates_2026["natural_gas_p_per_kwh"] / 100
-    )
+    # CCA reduced-rate fractions (HMRC, 2024+, indicative). CCA holders pay
+    # the main rate × these fractions. Sub-sector specific in reality;
+    # to be replaced with per-scheme values once lookup_grants is wired.
+    cca_reduced_fractions = {"electricity": 0.08, "natural_gas": 0.11}
+
+    elec_main = elec_kwh * ccl_main_rates_2026["electricity_p_per_kwh"] / 100.0
+    gas_main = gas_kwh * ccl_main_rates_2026["natural_gas_p_per_kwh"] / 100.0
+    ccl_gross_gbp = elec_main + gas_main
+
     if cca_subsector:
-        ccl_liability_gbp *= 0.10  # rough — discount varies
+        f_elec = cca_reduced_fractions["electricity"]
+        f_gas = cca_reduced_fractions["natural_gas"]
+        elec_applied = elec_main * f_elec
+        gas_applied = gas_main * f_gas
+        ccl_applied_gbp = elec_applied + gas_applied
+        elec_p_applied = ccl_main_rates_2026["electricity_p_per_kwh"] * f_elec
+        gas_p_applied = ccl_main_rates_2026["natural_gas_p_per_kwh"] * f_gas
+        ccl_method = (
+            f"CCA reduced rates (HMRC 2024+): "
+            f"elec {elec_p_applied:.3f} p/kWh × {elec_kwh/1e6:.1f}M kWh = £{elec_applied:,.0f}; "
+            f"gas {gas_p_applied:.3f} p/kWh × {gas_kwh/1e6:.1f}M kWh = £{gas_applied:,.0f}."
+        )
+    else:
+        ccl_applied_gbp = ccl_gross_gbp
+        ccl_method = (
+            f"Main CCL rates (no CCA): "
+            f"elec {ccl_main_rates_2026['electricity_p_per_kwh']} p/kWh × "
+            f"{elec_kwh/1e6:.1f}M kWh + gas {ccl_main_rates_2026['natural_gas_p_per_kwh']} p/kWh × "
+            f"{gas_kwh/1e6:.1f}M kWh."
+        )
+
+    ccl_relief_gbp = ccl_gross_gbp - ccl_applied_gbp
+
     ccl_assessment = {
-        "annual_ccl_liability_gbp_estimate": round(ccl_liability_gbp, 0),
+        "ccl_liability_gbp_year": round(ccl_applied_gbp, 0),
+        "ccl_gross_no_cca_gbp_year": round(ccl_gross_gbp, 0),
+        "ccl_relief_value_gbp_year": round(ccl_relief_gbp, 0),
+        "ccl_method": ccl_method,
         "main_rates_used": ccl_main_rates_2026,
-        "discount_applied": 0.90 if cca_subsector else 0.0,
+        "cca_reduced_fractions_used": cca_reduced_fractions if cca_subsector else None,
+        "cca_applied": cca_subsector is not None,
+        # Legacy alias retained until v0.2 readers migrate.
+        "annual_ccl_liability_gbp_estimate": round(ccl_applied_gbp, 0),
     }
 
     return {
@@ -204,5 +236,10 @@ def compute_baseline_carbon(
             scope1["provenance"]
             + scope2["provenance"]
             + [{"source": "DEFRA 2026 WTT", "method": scope3["method_reference"]}]
+            + [{
+                "calculation": "CCL liability",
+                "method": ccl_method,
+                "rates_source": "HMRC CCL main rates 2026; CCA reduced fractions 2024+",
+            }]
         ),
     }

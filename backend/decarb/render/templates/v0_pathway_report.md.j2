@@ -29,6 +29,10 @@ The technology screen retained **{{ screen.shortlist_count }} of {{ screen.candi
 
 A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ dispatch.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** in year 1 (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ dispatch.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ dispatch.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
 
+{% if dispatch.deficit_analysis %}
+> **Heat-deficit caveat.** This pathway carries a {{ dispatch.deficit_analysis.deficit_pct }}% heat deficit ({{ dispatch.deficit_analysis.deficit_gwh }} GWh/yr unmet demand) — i.e. the proposed stack does **not** deliver all of the site's process-heat demand under the simulated dispatch. The carbon savings figure above assumes the deficit is closed by retained gas at η = {{ dispatch.deficit_analysis.closure_assumption_boiler_eff }} (DEFRA 2026 EF). Closing it raises Scope 1 by ~{{ dispatch.deficit_analysis.additional_scope_1_if_gas_closed_t_co2e|fmt_int }} tCO₂e to ~**{{ dispatch.deficit_analysis.scope_1_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**, and Scope 1+2 to ~**{{ dispatch.deficit_analysis.scope_1_2_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**. Either uprate the electrified capacity or accept a residual gas commitment for senior review.
+{% endif %}
+
 Investment-pathway sequencing, Monte-Carlo NPV bands, pinch analysis, formal grid-connection assessment and reliability sizing are deferred to subsequent engine releases (see roadmap badges below).
 
 ---
@@ -186,9 +190,9 @@ In place of an optimised pathway, the v0 engine simulates a single pre-specified
 |---|---:|
 | Total heat demand | {{ eb.get('total_demand_kwh')|kwh_to_gwh }} GWh |
 | Total heat supply | {{ eb.get('total_supply_kwh')|kwh_to_gwh }} GWh |
-| Unmet demand | {{ eb.get('unmet_demand_kwh')|kwh_to_gwh }} GWh |
-| Imbalance | {{ eb.get('imbalance_kwh')|fmt_int }} kWh ({{ eb.get('imbalance_pct')|fmt_pct }}) |
-| Closure check (<0.5%) | {% if eb.get('check_passed') %}PASS{% else %}**FAIL**{% endif %} |
+| Unmet demand | {{ eb.get('unmet_demand_kwh')|kwh_to_gwh }} GWh ({{ eb.get('unmet_demand_pct') }}% of demand) |
+| Accounting imbalance | {{ eb.get('imbalance_kwh')|fmt_int }} kWh ({{ eb.get('imbalance_pct')|fmt_pct }}) |
+| **Dispatch status** | **{{ eb.get('dispatch_status') }}** {% if eb.get('check_passed') %}— closure tight, no material deficit{% elif eb.get('dispatch_status') == 'HEAT_DEFICIT' %}— accounting clean but capacity short (see §1 caveat){% else %}— **review immediately**{% endif %} |
 {% endif %}
 
 ---
@@ -217,8 +221,11 @@ Forecast Scope 1+2 trajectory under no decarbonisation action (gas held flat; gr
 
 **CBAM.** {% if reg.cbam %}{{ reg.cbam.note }}{% endif %}
 
-{% if reg.ccl and reg.ccl.annual_ccl_liability_gbp_estimate is defined %}
-**CCL.** Estimated annual CCL liability £{{ reg.ccl.annual_ccl_liability_gbp_estimate|fmt_int }} (electricity rate {{ reg.ccl.main_rates_used.electricity_p_per_kwh }} p/kWh; gas rate {{ reg.ccl.main_rates_used.natural_gas_p_per_kwh }} p/kWh; CCA discount factor {{ reg.ccl.discount_applied }}).
+{% if reg.ccl and reg.ccl.ccl_liability_gbp_year is defined %}
+**CCL.** Estimated annual CCL liability **£{{ reg.ccl.ccl_liability_gbp_year|fmt_int }}**. {{ reg.ccl.ccl_method }}
+{% if reg.ccl.cca_applied %}
+Without the CCA, the gross main-rate liability would be **£{{ reg.ccl.ccl_gross_no_cca_gbp_year|fmt_int }}/yr**, so participation in the CCA saves approximately **£{{ reg.ccl.ccl_relief_value_gbp_year|fmt_int }}/yr** — a material commercial reason to maintain CCA targets.
+{% endif %}
 {% endif %}
 {% endif %}
 

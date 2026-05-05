@@ -35,61 +35,22 @@ from decarb.engine.carbon import compute_baseline_carbon
 from decarb.engine.dispatch import simulate_site_dispatch
 from decarb.engine.parse import parse_energy_profile
 from decarb.engine.screen import screen_technologies
+from decarb.engine.tests.test_dispatch import _make_stack
 from decarb.render import render_report
 
 
 # ---------------------------------------------------------------------------
 # Fixture: run the four engine modules end-to-end, returning the bundle the
-# renderer expects. Cached per site at session scope to keep test runs fast.
+# renderer expects. Uses the canonical _make_stack from test_dispatch.py as
+# single source of truth — same stack across dispatch and render tests so
+# any drift in one module shows up in both test suites.
 # ---------------------------------------------------------------------------
 
 
-def _default_stack_for(site: dict[str, Any]) -> list[dict[str, Any]]:
-    """A reasonable hand-specified electrified stack for each golden site.
-
-    Sized off the gas demand: HP for hot water + WHR, electrode boiler for
-    steam, thermal storage to permit off-peak dispatch, retained gas backup.
-    Real pathway optimisation is ROADMAP — this is just enough to exercise
-    the dispatch module so the renderer has carbon_summary + cop_table to
-    consume.
-    """
-    return [
-        {
-            "type": "heat_pump",
-            "tech_id": "NH3_high_temp_HP",
-            "capacity_kw_thermal": 2000,
-            "refrigerant": "Ammonia",
-            "compressor_type": "screw",
-            "source_type": "waste_heat_chiller",
-            "sink_temp_c": 90,
-            "serves_end_uses": ["hot_water"],
-        },
-        {
-            "type": "electrode_boiler",
-            "tech_id": "EB_4MW",
-            "capacity_kw": 4000,
-            "efficiency": 0.99,
-            "serves_end_uses": ["steam"],
-        },
-        {
-            "type": "thermal_storage",
-            "tech_id": "TES_8MWh",
-            "capacity_kwh": 8000,
-            "charge_rate_kw": 4000,
-            "discharge_rate_kw": 4000,
-            "round_trip_efficiency": 0.92,
-        },
-        {
-            "type": "gas_boiler",
-            "tech_id": "gas_backup",
-            "capacity_kw": 4000,
-            "efficiency": 0.85,
-            "serves_end_uses": ["steam"],
-        },
-    ]
-
-
-def _engine_bundle(site: dict[str, Any]) -> dict[str, Any]:
+def _engine_bundle(
+    site: dict[str, Any],
+    gas_cap_kw: float = 10_000,
+) -> dict[str, Any]:
     parsed = parse_energy_profile(site_brief=site)
     carbon = compute_baseline_carbon(
         annual_balance_kwh=parsed["annual_balance_kwh"],
@@ -102,7 +63,7 @@ def _engine_bundle(site: dict[str, Any]) -> dict[str, Any]:
     screen = screen_technologies(site_brief=site, energy_profile=parsed)
     dispatch = simulate_site_dispatch(
         energy_profile=parsed,
-        technology_stack=_default_stack_for(site),
+        technology_stack=_make_stack(gas_cap_kw=gas_cap_kw),
         dispatch_policy="merit_order",
         year=2026,
     )
@@ -128,6 +89,12 @@ def brewery_bundle(brewery_8mw):
 @pytest.fixture
 def softdrinks_bundle(soft_drinks_12mw):
     return _engine_bundle(soft_drinks_12mw)
+
+
+@pytest.fixture
+def dairy_deficit_bundle(dairy_5mw):
+    """Dairy with deliberately undersized 200 kW gas backup → HEAT_DEFICIT."""
+    return _engine_bundle(dairy_5mw, gas_cap_kw=200)
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +248,13 @@ class TestDairyEndToEnd:
         assert "IMPLEMENTED%20v0" in md
         assert "ROADMAP%20v0.2" in md
 
+    def test_no_caveat_when_balanced(self, dairy_bundle):
+        """Canonical stack returns dispatch_status=BALANCED → §1 must not
+        contain a heat-deficit caveat block."""
+        md = render_report(**dairy_bundle, write_file=False)["markdown"]
+        assert "heat deficit" not in md.lower()
+        assert "Heat-deficit caveat" not in md
+
     def test_roadmap_modules_marked_not_fabricated(self, dairy_bundle):
         """The renderer must not invent numbers for the unimplemented
         pathway optimiser or grant tools — they appear as ROADMAP."""
@@ -296,6 +270,37 @@ class TestDairyEndToEnd:
 # ---------------------------------------------------------------------------
 # §2 Numerical traceability test (the load-bearing one)
 # ---------------------------------------------------------------------------
+
+
+class TestHeatDeficitCaveat:
+    """Under HEAT_DEFICIT the renderer must surface the deficit + an
+    upper-bound carbon figure in §1; this is the bubble-up rule from the
+    Tier A engine fixes."""
+
+    def test_caveat_emitted_under_heat_deficit(self, dairy_deficit_bundle):
+        # Sanity: engine must have produced HEAT_DEFICIT for this fixture.
+        eb = dairy_deficit_bundle["dispatch_result"]["energy_balance"]
+        assert eb["dispatch_status"] == "HEAT_DEFICIT"
+
+        md = render_report(**dairy_deficit_bundle, write_file=False)["markdown"]
+        assert "Heat-deficit caveat" in md
+        # The upper-bound Scope 1 figure (engine-computed) must appear in the
+        # rendered §1, formatted as integer with thousands separator.
+        s1_upper = dairy_deficit_bundle["dispatch_result"]["deficit_analysis"][
+            "scope_1_upper_bound_t_co2e"
+        ]
+        assert f"{int(round(s1_upper)):,}" in md, (
+            f"upper-bound Scope 1 {s1_upper} not visible in rendered §1"
+        )
+
+    def test_caveat_appears_inside_section_1(self, dairy_deficit_bundle):
+        """The caveat must be rendered before the §2 header — it's an
+        executive-summary disclosure, not a footnote."""
+        md = render_report(**dairy_deficit_bundle, write_file=False)["markdown"]
+        s1_idx = md.index("## §1 Executive Summary")
+        s2_idx = md.index("## §2 Site Baseline")
+        caveat_idx = md.index("Heat-deficit caveat")
+        assert s1_idx < caveat_idx < s2_idx
 
 
 class TestNumericalTraceability:

@@ -242,6 +242,98 @@ class TestDairyDispatch:
         missing = _EXPECTED_KEYS - dairy_result.keys()
         assert not missing, f"Missing output keys: {missing}"
 
+    def test_hp_weighted_cop_meets_canonical(self, dairy_result):
+        """HP weighted COP under canonical merit_order dispatch must clear
+        3.8 — close to the calculate_hp_cycle reference (4.0-4.5) at the
+        fixed 35°C waste-heat source. Drops below this if dispatch silently
+        falls through to ambient_air mode (which produced the 2.4 regression
+        before the strict source_type guard)."""
+        hp = next(
+            u for u in dairy_result["equipment_utilisation"]
+            if u["tech_type"] == "heat_pump"
+        )
+        assert hp["weighted_cop"] >= 3.8, (
+            f"HP weighted_cop {hp['weighted_cop']} below 3.8 — "
+            "dispatch may have routed waste-heat HP to ambient_air mode."
+        )
+
+
+class TestDispatchStatus:
+    """`dispatch_status` is the source-of-truth flag for whether the
+    pathway delivers the demanded heat. BALANCED = closure tight + unmet
+    < 0.5%. HEAT_DEFICIT = closure tight but unmet > 0.5% (capacity short).
+    ACCOUNTING_ERROR = bookkeeping bug (raises)."""
+
+    def test_balanced_status_for_dairy(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=10_000),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        assert result["energy_balance"]["dispatch_status"] == "BALANCED"
+        assert result["energy_balance"]["check_passed"] is True
+        assert result.get("deficit_analysis") is None, (
+            "deficit_analysis must be None under BALANCED status"
+        )
+
+    def test_undersized_gas_returns_heat_deficit_no_raise(self, dairy_5mw):
+        """200 kW gas backup is deliberately too small to cover the dairy
+        steam peaks. Dispatch should return HEAT_DEFICIT, check_passed=False,
+        emit a deficit_analysis block, and NOT raise."""
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=200),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        eb = result["energy_balance"]
+        assert eb["dispatch_status"] == "HEAT_DEFICIT"
+        assert eb["check_passed"] is False
+        assert eb["unmet_demand_kwh"] > 0
+        assert eb["unmet_demand_pct"] > 0.5
+
+        da = result["deficit_analysis"]
+        assert da is not None
+        assert da["deficit_pct"] > 0.5
+        assert da["deficit_gwh"] > 0
+        assert da["additional_scope_1_if_gas_closed_t_co2e"] > 0
+        assert (
+            da["scope_1_upper_bound_t_co2e"]
+            > result["carbon_summary"]["scope_1_t_co2e"]
+        )
+
+    def test_unmet_demand_pct_field_present(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        result = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(gas_cap_kw=10_000),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        assert "unmet_demand_pct" in result["energy_balance"]
+
+
+class TestSourceTypeStrictness:
+    """The dispatch must reject unknown HP source_type strings rather than
+    silently routing to ambient_air. Silent fallback was the cause of a
+    real regression (rendered weighted_cop 2.4 instead of 4.15)."""
+
+    def test_unknown_source_type_raises(self, dairy_5mw):
+        parsed = parse_energy_profile(dairy_5mw)
+        bad_stack = _make_stack(gas_cap_kw=10_000)
+        # Override only the HP entry with an unknown source_type.
+        bad_stack[0] = {**bad_stack[0], "source_type": "waste_heat_chiller"}
+        with pytest.raises(ValueError, match="source_type"):
+            simulate_site_dispatch(
+                energy_profile=parsed,
+                technology_stack=bad_stack,
+                dispatch_policy="merit_order",
+                year=2026,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Brewery structural tests (merit_order)
