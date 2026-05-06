@@ -1,6 +1,6 @@
 ## Iteration: 2 of 3
 ## Branch: feature/assessment-2026-05-06-fixes
-## Commit: <stamped post-commit>
+## Commit: f09fd453309f575fe99fb347144a738853940a40
 ## Tests: 282 passed, 1 skipped, 5 failed in 164.37s
 
 The 5 failures are all in `decarb/tests/test_retrieve_reference_docs.py`
