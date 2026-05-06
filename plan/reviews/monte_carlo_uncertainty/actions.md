@@ -18,3 +18,12 @@ Roles: `builder`, `reviewer`, `meta`.
 [2026-05-06T09:40][builder][iter1] test_uncertainty.py: 15 new tests (schema, monotonicity, copula closure, Sobol bounds, Morris signs, seed determinism, target trajectory probability ×2, dairy golden ×5, triangular helper ×2). All pass.
 [2026-05-06T09:42][builder][iter1] cd backend && pytest decarb/engine/tests -q → 237 passed (baseline 222 + 15 new). cd backend && pytest decarb -q (excl. pre-existing psycopg collection errors in corpus tests) → 237 passed, 1 skipped pre-existing.
 [2026-05-06T09:43][builder][iter1] regenerate_dairy_report.py runs end-to-end; rendered §4.1 carries the live MC block; Appendix A grew by 7 monte_carlo_uncertainty provenance rows; rg sweep shows no MC literals in templates.
+[2026-05-06T10:50][reviewer][iter1] Re-ran `cd backend && pytest decarb/engine/tests -q` after pip-installing SALib (was missing locally) — confirmed 237 passed in 94.05s, matches Builder's count.
+[2026-05-06T10:51][reviewer][iter1] Re-ran `pytest decarb -q --ignore=corpus/tests --ignore=tests/test_retrieve_reference_docs.py` → 237 passed, 1 skipped. psycopg collection errors confirmed pre-date round (file ages = initial-import commit 7f33098).
+[2026-05-06T10:52][reviewer][iter1] Re-ran regenerate_dairy_report.py end-to-end → 33 prov / 31 standards / 4 §9 senior decisions (matches Builder).
+[2026-05-06T10:55][reviewer][iter1] Independently re-derived MC numbers: P10=-797061, P50=12123, P90=744351, prob_npv_pos=0.51, VaR_95=1016158, CVaR_95=1279656, top-3 ST={gas_price 0.414, electricity_price 0.377, ietf_grant_outcome 0.123}. All match rendered §4.1 exactly.
+[2026-05-06T10:57][reviewer][iter1] `rg` for rendered numerals in render/templates/* and render/*.py → no matches. Criterion 8 passes.
+[2026-05-06T10:58][reviewer][iter1] Verified _stub removed for monte_carlo_uncertainty (tools.py:231); schema at tools.py:616 reflects real signature.
+[2026-05-06T10:59][reviewer][iter1] Adjudicated OQ#1: criterion 4 spec_targets unmet (prob_npv_pos=0.51 vs >0.7; Sobol top-2={gas,elec} vs {elec,grant}). Honest bands accepted as safety net but iter-2 must attempt path (ii) — retune deterministic anchor within defensible empirical envelopes.
+[2026-05-06T11:00][reviewer][iter1] OQ#3 ACCEPT: render/__init__.py kwarg is the minimum-viable seam to thread MC into the in-scope template; renderer still does no arithmetic.
+[2026-05-06T11:01][reviewer][iter1] OQ#4 ACCEPT: closed-form re-evaluation captures all six inputs with documented advisory warnings.
