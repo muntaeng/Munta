@@ -215,19 +215,48 @@ def _irr_brentq(cashflows: list[float]) -> float | None:
         return None
 
 
-def _simple_payback_years(
-    capex_total: float, annual_savings_year1: float
-) -> float | None:
-    if annual_savings_year1 <= 0 or capex_total <= 0:
-        return None
-    return capex_total / annual_savings_year1
+def _simple_payback_years(cashflows: list[float]) -> float | None:
+    """Year (interpolated) at which cumulative undiscounted cashflow first
+    turns non-negative. Same first-cross convention as
+    ``_discounted_payback_years`` but without time-value discounting.
+
+    The textbook ``simple_payback = capex / year_1_savings`` formulation is
+    only meaningful when annual savings are roughly constant. With ramping
+    savings (e.g. declining grid carbon, escalating gas price, phased
+    capex install), cumulative-cross is the meaningful undiscounted
+    analogue and preserves the invariant ``discounted >= simple``.
+
+    cashflows convention: ``cashflows[0]`` is the year-0 net (capex - grant
+    - opex + savings); ``cashflows[i]`` for ``i>=1`` is year-i net.
+    """
+    cumulative = 0.0
+    for y, cf in enumerate(cashflows):
+        prev = cumulative
+        cumulative += cf
+        if prev < 0 <= cumulative:
+            return (y - 1) + (-prev) / cf if cf != 0 else float(y)
+    return None
 
 
 def _discounted_payback_years(
     cashflows: list[float], discount_rate: float
 ) -> float | None:
-    """Year (interpolated) at which cumulative discounted cashflow turns
-    positive. Returns None if it never recovers within the horizon."""
+    """Year (interpolated) at which cumulative discounted cashflow first
+    turns non-negative AND remains non-negative through the horizon end.
+
+    cashflows convention: ``cashflows[0]`` is the year-0 net (capex - grant
+    - opex + savings); ``cashflows[i]`` for ``i>=1`` is year-i net (savings
+    - opex). Capex outflows ahead of operational savings means
+    ``cashflows[0]`` is typically negative.
+
+    v0 implementation: first-cross only. A pathway that crosses zero early
+    and dips back below in year y due to mid-life replacement opex (when
+    ageing lands in v0.2) will report the first cross in v0. The
+    "remains non-negative through horizon end" contract is the target for
+    v0.2, where ageing makes the distinction material.
+
+    Returns None if cumulative never reaches zero within the horizon.
+    """
     cumulative = 0.0
     for y, cf in enumerate(cashflows):
         disc_cf = cf / ((1.0 + discount_rate) ** y)
@@ -236,8 +265,6 @@ def _discounted_payback_years(
         if prev < 0 <= cumulative:
             # Linear interpolation within year y.
             return (y - 1) + (-prev) / disc_cf if disc_cf != 0 else float(y)
-        if y == 0 and cumulative >= 0:
-            return 0.0
     return None
 
 
@@ -619,22 +646,13 @@ def _evaluate_pathway(
     npv = _npv(cashflows, discount_rate)
     irr = _irr_brentq(cashflows)
 
-    # Year-1 savings used for simple payback (year 1 = first full
-    # operational year after the year-0 capex hit). Use horizon[1] if
-    # available, else horizon[0]. Includes carbon value to be consistent
-    # with the cashflow definition above.
-    pb_year = 1 if horizon_years > 1 else 0
-    pb_carbon_value = max(
-        0.0,
-        baseline_annual_carbon_t_per_year[pb_year] - annual_carbon_t[pb_year],
-    ) * ets_price_gbp_per_t
-    annual_savings_y1 = (
-        baseline_annual_cost_gbp_per_year[pb_year]
-        - annual_dispatch_costs[pb_year]
-        + pb_carbon_value
-        - opex_per_year[pb_year]
-    )
-    simple_payback = _simple_payback_years(capex_total, annual_savings_y1)
+    # Simple payback now uses cumulative-undiscounted-cross over the same
+    # cashflow array as discounted payback (Phase 2 of the
+    # assessment_2026_05_06_fixes round). The previous textbook
+    # `capex_total / annual_savings_year1` formulation overstated payback
+    # for pathways with ramping savings (declining grid carbon, escalating
+    # gas price), which broke the `discounted >= simple` invariant.
+    simple_payback = _simple_payback_years(cashflows)
     discounted_payback = _discounted_payback_years(cashflows, discount_rate)
 
     # Carbon metrics

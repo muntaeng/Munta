@@ -727,3 +727,113 @@ class TestSoftDrinksPathway:
         assert npv >= 2_000_000, (
             f"Soft drinks balanced NPV with overlay £{npv:,.0f} below £2M"
         )
+
+
+# ---------------------------------------------------------------------------
+# Discounted-payback invariants (Phase 2 of assessment_2026_05_06_fixes)
+# ---------------------------------------------------------------------------
+#
+# Bug background: `_discounted_payback_years` previously had an early
+# return that fired whenever the year-0 cumulative was non-negative,
+# producing 0.0 for cashflow shapes like `[+grant, -capex, +savings...]`
+# even though the real first-cross is years later. The early return is
+# dropped; these tests lock the invariant.
+
+
+from decarb.engine.pathway import _discounted_payback_years  # noqa: E402
+
+
+class TestDiscountedPaybackInvariants:
+    """Cross-site, cross-pathway invariant: discounted payback must be
+    >= simple payback (or both None). Plus targeted unit tests for the
+    year-0 short-circuit bug.
+    """
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    @pytest.mark.parametrize("pathway_name", ["conservative", "balanced", "aggressive"])
+    def test_discounted_ge_simple_for_each_named_pathway(
+        self, request, site_fixture, pathway_name
+    ):
+        """For each (site, named pathway), discounted payback must be at
+        least as long as simple payback when both are defined.
+
+        Two None-handling rules:
+          - both None: invariant vacuously holds (pathway uneconomic on
+            both metrics).
+          - simple-non-None, discounted-None: also valid — a marginal
+            pathway that just-recovers undiscounted near the horizon end
+            may never recover under discounting. Discounting pushes
+            payback later, so it can push it past the horizon entirely.
+          - simple-None, discounted-non-None: STRUCTURALLY IMPOSSIBLE.
+            If undiscounted cashflows never crossed zero, discounted ones
+            can't either (discounting only shrinks future inflows).
+        """
+        site = request.getfixturevalue(site_fixture)
+        pw = _cached_pathway(site, ets=75.0, grant=0.30)["pathways"][pathway_name]
+        sp = pw["simple_payback_years"]
+        dp = pw["discounted_payback_years"]
+        if sp is None:
+            assert dp is None, (
+                f"{site_fixture}/{pathway_name}: simple payback is None "
+                f"(undiscounted cashflows never recover) but discounted "
+                f"payback returned {dp}. Structurally impossible — "
+                f"discounting only shrinks future inflows."
+            )
+            return
+        if dp is None:
+            return  # marginal: simple just-recovers, discounted doesn't
+        assert dp >= sp - 0.01, (  # 0.01-yr tolerance for FP rounding
+            f"{site_fixture}/{pathway_name}: discounted payback {dp:.2f}yr "
+            f"< simple payback {sp:.2f}yr — discounting can only push "
+            f"payback later, never earlier."
+        )
+
+    def test_grant_year_zero_does_not_short_circuit(self):
+        """Reproduce the bug from the brief: a [+grant, -capex, +savings...]
+        cashflow shape must NOT return 0.0 just because cumulative is
+        non-negative at y=0. The capex hit at y=1 swamps the grant; real
+        recovery is years later."""
+        cf = [+593_712.0, -1_562_400.0] + [250_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is not None
+        assert result >= 1.0, (
+            f"Discounted payback {result} returned for grant-at-y0 / "
+            f"capex-at-y1 / savings-thereafter shape — should be the "
+            f"first year cumulative crosses zero AFTER the y=1 capex "
+            f"hit, not 0.0. Year-0 short-circuit bug regression."
+        )
+
+    def test_capex_year_zero_typical_case(self):
+        """Standard [-net_capex, +savings...] shape with a hand-computed
+        answer. cashflows = [-1_000_000, +200_000 × 14] at 8% discount.
+        Hand check (cumulative undiscounted needs ~5 yrs raw; discounted
+        is longer). Cumulative at year 6: -1e6 + 200_000*(1/1.08 +
+        1/1.08^2 + ... + 1/1.08^6) = -1e6 + 200_000 * 4.6229 = -75_417.
+        Year 7: + 200_000/1.08^7 = 116_725 → cumulative +41_308.
+        First-cross at y=7 with prev=-75417, disc_cf=116725 →
+        return 6 + 75417/116725 = 6 + 0.6461 = 6.65 yrs."""
+        cf = [-1_000_000.0] + [200_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is not None
+        assert 6.5 < result < 6.8, (
+            f"Discounted payback {result:.4f} outside expected band "
+            f"6.5-6.8 yrs for standard [-1M, +200k×14] @ 8%."
+        )
+
+    def test_unrecoverable_returns_none(self):
+        """A pathway whose savings never overtake the discounted capex
+        outflow within the horizon must return None, not 0.0."""
+        cf = [-1_000_000.0] + [50_000.0] * 14   # savings too small
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is None
+
+    def test_y0_zero_cashflow_does_not_return_zero(self):
+        """Edge case: cashflows[0] = 0. Function must not declare
+        instant payback (cumulative starts at 0, ends y=0 at 0 — the
+        prev<0 condition is false)."""
+        cf = [0.0, -1_000_000.0] + [200_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is None or result >= 1.0, (
+            f"y0-zero cashflow returned payback {result}; must not "
+            f"short-circuit to 0.0 when prev=cumulative=0."
+        )
