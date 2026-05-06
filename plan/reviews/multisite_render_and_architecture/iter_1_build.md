@@ -1,6 +1,6 @@
 ## Iteration: 1 of 3
 ## Branch: feature/assessment-2026-05-06-fixes
-## Commit: <stamped post-commit>
+## Commit: d655b24a0cd7ee4574dace9a11342a37cfc99ed9
 ## Tests: 282 passed, 1 skipped (engine subset; corpus-retrieval suite excluded — DB-dependent infra, was not running pre-round either)
 
 ### Issues addressed (from brief or prior review)
