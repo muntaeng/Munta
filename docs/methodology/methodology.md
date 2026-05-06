@@ -3,7 +3,7 @@
 ## Calculation Methodology
 
 **Document:** IDPA-MET-001
-**Version:** 0.3 (draft for senior-engineer review)
+**Version:** 0.4 (draft for senior-engineer review)
 **Date:** May 2026
 **Classification:** Restricted — for review by senior engineers and technical assurance reviewers
 
@@ -15,7 +15,7 @@
 |---|---|
 | Document title | Industrial Decarbonisation Pathway Analysis — Calculation Methodology |
 | Document reference | IDPA-MET-001 |
-| Version | 0.3 (draft) |
+| Version | 0.4 (draft) |
 | Status | For review |
 | Owner | Methodology lead |
 | Reviewer | Senior chartered engineer (mechanical, thermal, or process) |
@@ -29,12 +29,13 @@
 | 0.1 | April 2026 | Methodology lead | Initial draft for internal review |
 | 0.2 | May 2026 | Methodology lead | Module status badges (implemented v0 vs roadmap v0.2); regulatory framing tightened to three-pillar (ETS / CBAM / SECR) with adjacent levers (CCAs, CCL, MEES) declared separately; provenance disclosure of MEng dissertation lineage added |
 | 0.3 | May 2026 | Methodology lead | Section badges aligned with shipped engine state: §3.6 pathway and §3.7 MC moved ROADMAP→IMPLEMENTED v0; §1 status preamble rewritten; §3.7 prose rewritten to match shipped LHS + Iman-Conover + SALib implementation; incidental v0.2 references reworded for clarity |
+| 0.4 | May 2026 | Methodology lead | §4.4 self-critique loop moved ROADMAP→IMPLEMENTED v0; §1 status preamble updated to four-modules-roadmap state (validate_pathway no longer in the roadmap list); §4.4 paragraph rewritten to describe the nine-check `validate_pathway` engine module; §2.2 (iv) and §4.6 prose realigned with the now-implemented validator |
 
 ---
 
 ### Status preamble
 
-This methodology describes the system at its target state on completion of v0.2 (target: July 2026). At the time of this version's issue, **seven engine modules are implemented and golden-test-validated against three reference sites** (§3.1, §3.2, §3.3, §3.4 single-stage, §3.5, §3.6, §3.7), plus the report renderer. **Four modules are scheduled for v0.2** (§3.8 pinch, §3.9 safety, §3.10 grid, §3.11 reliability), alongside the multi-stage HP architectures noted in §3.4 and the `validate_pathway` self-critique loop in §4.4. Each section below carries an explicit status badge so the reader is never uncertain what the engine produces today.
+This methodology describes the system at its target state on completion of v0.2 (target: July 2026). At the time of this version's issue, **seven engine modules are implemented and golden-test-validated against three reference sites** (§3.1, §3.2, §3.3, §3.4 single-stage, §3.5, §3.6, §3.7), plus the report renderer. **Four modules are scheduled for v0.2** (§3.8 pinch, §3.9 safety, §3.10 grid, §3.11 reliability), alongside the multi-stage HP architectures noted in §3.4. The `validate_pathway` self-critique loop in §4.4 is **implemented in v0** and runs as a render-time gate — see §4.4 for the check list. Each section below carries an explicit status badge so the reader is never uncertain what the engine produces today.
 
 The engineering claims, standards cited, and validation regime described in this document apply equally to implemented and roadmap modules: the spec is the contract, and ROADMAP modules are not to be released until they meet it.
 
@@ -94,7 +95,7 @@ Five principles govern every module of the Engine without exception:
 
 **(iii)** *The engine is independently runnable.* The Python engine produces the same numbers irrespective of whether the orchestration layer is present. This requirement guards against calculation drift and supports independent re-execution by a reviewer.
 
-**(iv)** *Self-critique loop.* Before producing the final deliverable, the orchestration layer reviews its own draft against a checklist of common inconsistencies — figures that disagree across sections, claims unsupported by tool calls, assumptions undeclared. Findings are addressed before output. *Status: scheduled for v0.2 — the `validate_pathway` tool implementing the structural check is currently a stub; see §4.4 for the badge.*
+**(iv)** *Self-critique loop.* Before producing the final deliverable, the orchestration layer runs the `validate_pathway` engine module (§4.4) — a structured nine-check pass over the full engine bundle covering numerical consistency between sections, payback-invariant compliance, screen↔pathway grid-headroom consistency, carbon-balance closure, provenance arithmetic self-consistency, MC↔pathway central-tendency agreement, shortlist-pathway containment, standards-register integrity, and methodology-status / engine-implementation parity. Render is gated on `passed=true`; failed-error checks block the report, with the failed check IDs returned to the orchestration layer for remediation. *Status: IMPLEMENTED v0.*
 
 **(v)** *Golden test cases gate every release.* No engine module is released until it produces results, against three reference site profiles, that fall within tolerance bands set by hand-checked engineering judgement. The reference profiles are dairy (5 MW), brewery (8 MW) and soft drinks (12 MW).
 
@@ -230,9 +231,27 @@ Three reference site profiles — a 5 MW dairy, an 8 MW brewery and a 12 MW soft
 
 The numeric tolerance bands applied are ±10% on cardinal results and ±25% on probabilistic ranges (P10 / P90). Categorical results (shortlist membership, regulatory flag presence, warning codes) are checked for exact match.
 
-### 4.4 Self-critique loop  ▍ *Status: ROADMAP v0.2*
+### 4.4 Self-critique loop  ▍ `IMPLEMENTED v0`
 
-The orchestration layer, before producing a final deliverable, re-reads the draft against a structured checklist: numerical consistency between sections, standards citations resolving to documents in the corpus, claims supported by tool calls, assumptions explicitly declared. Discrepancies are addressed by re-running the relevant engine modules, not by edit of the output text.
+The `validate_pathway` engine module runs after all upstream tool calls and before the renderer, performing nine cross-module consistency and arithmetic checks over the engine bundle (parse, screening, baseline carbon, dispatch, pathway, Monte Carlo). Each check returns a structured record (`check_id`, `severity` ∈ {error, warning, info}, `passed`, `message`, `details`); the public function aggregates them and exposes `passed` (True iff zero error-severity checks failed) plus a `summary` and full `checks` list.
+
+The v0 check set:
+
+1. `discounted_ge_simple_payback` (error). For each named pathway, asserts `discounted_payback_years ≥ simple_payback_years` (or both None, or simple-non-None & discounted-None — discounting can push past the horizon, but never earlier than the undiscounted cumulative cross).
+2. `screen_pathway_grid_consistency` (error). Asserts that no action in any `pathways_no_reinforcement` named pathway carries `requires_grid_decision=True` — the §3.3 pending-grid screening verdict must propagate into the no-reinforcement track.
+3. `carbon_balance_year_15` (error). For each named pathway, asserts `(baseline_y0 − pathway_y15) / baseline_y0 ≈ year_15_reduction_pct` to within 0.5 percentage points.
+4. `exec_summary_baseline_consistency` (warning). The §1 baseline-y0 figure (from the pathway's per-year baseline dispatch) and `compute_baseline_carbon.totals.scope_1_2_loc_t_co2e` must agree within 5%; current EF / grid-intensity divergence between the two routines is flagged for v0.2 reconciliation.
+5. `provenance_arithmetic_self_consistent` (error). Iterates provenance rows whose `method` string contains a `<a> × <b> = <c>` pattern; asserts `|a × b − c| < max(£1, 0.5%·|c|)`. Catches CCL-class display-rounding bugs.
+6. `mc_pathway_consistency` (warning). When Monte Carlo is wired, asserts `monte_carlo.npv_distribution.p50_gbp` is within ±20% of the deterministic Balanced NPV.
+7. `shortlist_in_pathway_or_excluded` (error). Every action `tech_id` in any named pathway must appear in `screening.shortlist` or `screening.excluded_pending_grid_decision`.
+8. `standards_register_no_dupes` (info). The Appendix B standards register, formed as the union of every input dict's `standards_cited`, is asserted duplicate-free after whitespace normalisation.
+9. `methodology_status_matches_engine` (warning). For each `### 3.X module ▍ <BADGE>` line in this document, the corresponding engine bundle key is checked for non-stub presence; mismatches are warned (the check is the cross-module guard against this document drifting out of sync with the shipped engine).
+
+Render is gated: when the LLM requests `render_report`, the tool dispatcher checks `_site_context.engine_results.validate_pathway.passed`. If False or missing, render returns an error to the orchestration layer naming the failed check IDs; the LLM is instructed to fix the underlying engine output (typically by re-calling an upstream tool with corrected parameters) and re-call `validate_pathway` before re-attempting render. The full check list is also persisted to the engine bundle and rendered as §10 of the deliverable so a senior reviewer can see, at a glance, that every cross-section invariant was checked and the value of `passed`.
+
+**v0 limitations:** the §3.X-to-engine-key mapping in check 9 is hand-coded; a future v0.2 enhancement is to derive it from a tool registry. The §1 baseline-y0 inconsistency surfaced by check 4 is a known v0.2 reconciliation ticket — the validator flags it as a warning rather than blocking render.
+
+**Standards cited:** the validator itself does not introduce new standards; it asserts conformance with the standards already cited by the engine modules it audits. Provenance entries name `decarb.engine.validate.<check_id>` for each failed check.
 
 ### 4.5 Boundary of machine-generated content
 
@@ -240,7 +259,7 @@ The deliverable is positioned as a draft for senior-engineer review. The system 
 
 ### 4.6 Architectural enforcement of the no-arithmetic principle
 
-The orchestration layer is structurally prevented from performing arithmetic. The agent loop exposes only two interfaces to the language model: text generation and named tool requests. The model has no Python interpreter, no calculator tool, no code execution sandbox, and no path by which it can manufacture a number outside of a deterministic engine output. Numerical claims in the narrative are matched against the run audit log by the `validate_pathway` tool (scheduled for v0.2; see §4.4); discrepancies are flagged before render. The enforcement therefore rests on three layers — architecture, prompt discipline, and post-draft validation — described in Section 4.4 above and reviewable in the engine source.
+The orchestration layer is structurally prevented from performing arithmetic. The agent loop exposes only two interfaces to the language model: text generation and named tool requests. The model has no Python interpreter, no calculator tool, no code execution sandbox, and no path by which it can manufacture a number outside of a deterministic engine output. Numerical claims in the narrative are matched against the run audit log by the `validate_pathway` tool (implemented in v0; see §4.4); discrepancies are flagged before render and the render is blocked when error-severity checks fire. The enforcement therefore rests on three layers — architecture, prompt discipline, and post-draft validation — described in Section 4.4 above and reviewable in the engine source.
 
 ---
 

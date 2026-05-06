@@ -2,6 +2,10 @@
    Every number rendered must come from one of the input dicts:
      site, parse, carbon, screen, dispatch, provenance, standards.
    Modules not yet built render as ROADMAP placeholders, not fake data. #}
+{% if validate and not validate.passed %}
+> **DRAFT — VALIDATION FAILED — DO NOT DISTRIBUTE.** `validate_pathway` returned `passed=false` ({{ validate.summary.errors }} error-severity check(s) failed). The agent loop normally blocks render in this state; this output is a deliberate-debug build for triage. See §10 for the failed-check list.
+
+{% endif %}
 # Industrial Decarbonisation Pathway Analysis
 
 | | |
@@ -499,7 +503,6 @@ The following analyses are **not** performed in this engine release; their absen
 - `compute_safety_constraints` — BS EN 378 charge-limit assessment, ATEX/DSEAR zoning, F-Gas inventory, PED applicability. Deferred per §9.
 - `assess_grid_connection` — G99 application screen, voltage-rise estimate, harmonic injection (G5/5, IEEE 519), DNO reinforcement risk. Deferred per §10.
 - `compute_reliability_availability` — MTBF/MTTR availability, N+1 sizing, expected downtime cost. Deferred per §11.
-- `validate_pathway` — energy balance, carbon conservation, capex-envelope compliance check. Deferred to v0.4.
 
 ---
 
@@ -539,6 +542,22 @@ The following points require chartered-engineer judgement before this analysis i
 
 {% if dispatch.warnings %}
 **Dispatch-flagged.** {{ dispatch.warnings|length }} dispatch warning(s) — review §8.1 before signing the dispatch numbers.
+{% endif %}
+
+---
+
+## §10 Validation Report  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
+
+{% if validate %}
+Cross-module consistency and arithmetic checks run by `decarb.engine.validate.validate_pathway` over the engine bundle. **Overall: {{ 'PASSED' if validate.passed else 'FAILED' }}** — errors {{ validate.summary.errors }}, warnings {{ validate.summary.warnings }}, infos {{ validate.summary.infos }}.
+
+| # | Check | Severity | Result | Message |
+|---:|---|---|---|---|
+{% for c in validate.checks %}
+| {{ loop.index }} | `{{ c.check_id }}` | {{ c.severity }} | {{ 'PASS' if c.passed else 'FAIL' }} | {{ c.message|truncate(200) }} |
+{% endfor %}
+{% else %}
+*Validation report unavailable — `validate_pathway` was not run for this build. Render is normally gated on `validate_pathway.passed=True`; this output is a deliberate-debug build.*
 {% endif %}
 
 ---

@@ -28,8 +28,8 @@ Your workflow starts at step 2:
 4. Call `optimise_investment_pathway` to find the optimal sequencing over the planning horizon.
 5. Call `monte_carlo_uncertainty` to quantify uncertainty on NPV and carbon trajectory.
 6. Call `lookup_grants` and `lookup_regulations` for funding and compliance.
-7. Call `validate_pathway` — if it fails, revise.
-8. Call `render_report` to produce the final markdown deliverable.
+7. Call `validate_pathway` AFTER all engine tools (parse, baseline, dispatch, pathway, MC) and BEFORE `render_report`. The validator runs a nine-check cross-module consistency pass (payback invariants, grid-headroom screen↔pathway agreement, carbon balance, provenance arithmetic, MC↔pathway central-tendency, shortlist-pathway containment, etc.) and returns `passed: bool`. If `passed=false`, INVESTIGATE the failed checks (`failed_check_ids` lists them) — typically the fix is to re-call the upstream tool with corrected parameters, NOT to ignore the failure. Re-call `validate_pathway` after fixing. Do not request `render_report` until `passed=true`.
+8. Call `render_report` to produce the final markdown deliverable. The dispatcher will refuse render_report if `validate_pathway.passed` is not true; the refusal message names the failing checks.
 
 You may iterate. If a tool returns something unexpected, investigate before continuing.
 

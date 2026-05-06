@@ -17,6 +17,7 @@ from decarb.engine.parse import parse_energy_profile
 from decarb.engine.pathway import optimise_investment_pathway
 from decarb.engine.screen import screen_technologies
 from decarb.engine.uncertainty import monte_carlo_uncertainty
+from decarb.engine.validate import validate_pathway
 from decarb.render import render_report
 
 
@@ -155,6 +156,20 @@ def main() -> None:
         seed=42,
     )
 
+    # Run validate_pathway over the full engine bundle before rendering.
+    # In the agent loop this is enforced by the render_report tool gate;
+    # the regenerate script invokes it directly so the GOLDEN report
+    # exercises the same cross-module consistency check.
+    validate_result = validate_pathway(
+        site_brief=site_brief,
+        energy_profile=parse_result,
+        screening=screen_result,
+        baseline_carbon=carbon_result,
+        dispatch=dispatch_result,
+        pathway=pathway_result,
+        monte_carlo=uncertainty_result,
+    )
+
     ts = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     out = render_report(
         site_brief=site_brief,
@@ -164,6 +179,7 @@ def main() -> None:
         dispatch_result=dispatch_result,
         pathway_result=pathway_result,
         uncertainty_result=uncertainty_result,
+        validate_result=validate_result,
         format="markdown",
         include_appendices=True,
         timestamp=ts,
@@ -172,6 +188,10 @@ def main() -> None:
     print(f"  chars={out['char_count']:,} sections={out['section_count']} "
           f"provenance={out['provenance_entries']} standards={out['standards_cited_count']} "
           f"§9_senior_decisions={out.get('section_9_senior_decisions_count')}")
+    s = validate_result.get("summary", {})
+    print(f"  validate: passed={validate_result.get('passed')} "
+          f"errors={s.get('errors', 0)} warnings={s.get('warnings', 0)} "
+          f"infos={s.get('infos', 0)}")
 
 
 if __name__ == "__main__":
