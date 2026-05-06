@@ -41,6 +41,23 @@ ISSUES_FOUND. Append `actions.md`. Commit.
   Anchored-prose defects (where a stack change leaves stale literals
   in surrounding paragraphs) are the highest-yield class — `rg` for
   the old tech_ids and old capacity numbers in the touched files.
+- **Cross-section status consistency.** For every module that this
+  round moved to `IMPLEMENTED v0` (badge in the rendered output),
+  `rg` the *entire* rendered output for prose elsewhere claiming the
+  module is *deferred*, *stub*, *roadmap*, *future*, *not yet*, or
+  *v0.2*. Defects of this class have surfaced in three consecutive
+  rounds (most recently the §1 Executive Summary preamble in the MC
+  round still calling Monte Carlo deferred after §4.1 had gone live).
+  Any contradiction between a live status badge and prose elsewhere
+  is ISSUES_FOUND unless the brief explicitly excludes that section
+  from scope.
+- **Acceptance criterion tags.** If the brief tags criteria as
+  `[BINDING]` or `[ASPIRATIONAL]`, honor the distinction. A failed
+  `[BINDING]` criterion is automatic ISSUES_FOUND. A failed
+  `[ASPIRATIONAL]` criterion may be declared as a v0.2 follow-up
+  with reasoning, but **only** if Builder has documented in
+  iter_{N}_build.md why it is structurally unreachable in v0. If
+  criteria are untagged, default all to BINDING.
 - **N=3 cap.** If {N} == 3 and issues remain, declare residuals as
   v0.2 warnings in your verdict. Do **NOT** request iter-4. The
   supervisor honours the cap.

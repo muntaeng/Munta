@@ -55,7 +55,7 @@ Not material = routine reads, micro-edits within an in-progress action.
 ```
 ## Iteration: {N} of 3
 ## Branch: <branch>
-## Commit: <sha>
+## Commit: <stamped post-commit>
 ## Tests: <X passed in Ys, Z skipped>
 
 ### Issues addressed (from brief or prior review)
@@ -71,6 +71,14 @@ Not material = routine reads, micro-edits within an in-progress action.
 - <ambiguity, scope conflict, fallback chosen — anything Reviewer should
   rule on>
 ```
+
+**Important — leave the `## Commit:` line as the literal text
+`<stamped post-commit>`.** The supervisor patches it with the real SHA
+after your commit lands. If you try to fill it yourself the value will
+be wrong, because this iter file is *part of* the commit you're about
+to make and the SHA isn't computable until afterwards. (Both iters of
+the monte_carlo_uncertainty round had wrong SHAs in this field — the
+placeholder convention removes the trap.)
 
 ## Commit
 

@@ -108,6 +108,18 @@ for ((N=START_ITER; N<=N_MAX; N++)); do
       echo "ERR: Builder iter $N did not write $DIR/iter_${N}_build.md"
       exit 2
     fi
+    # Stamp Builder's commit SHA into the iter file. Builder writes the
+    # placeholder `<stamped post-commit>` because the iter file is itself
+    # part of the commit and the SHA isn't computable until afterwards.
+    SHA=$(git rev-parse HEAD)
+    sed -i.bak "s|^## Commit: <stamped post-commit>$|## Commit: $SHA|" \
+      "$DIR/iter_${N}_build.md"
+    rm -f "$DIR/iter_${N}_build.md.bak"
+    if ! git diff --quiet -- "$DIR/iter_${N}_build.md"; then
+      git add "$DIR/iter_${N}_build.md"
+      git commit -m "[stamp iter $N] $SHA" >/dev/null
+      echo "(stamped iter $N SHA: $SHA)"
+    fi
   else
     echo "(iter_${N}_build.md exists — skipping Builder)"
   fi
