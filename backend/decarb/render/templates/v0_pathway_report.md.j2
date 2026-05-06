@@ -38,7 +38,7 @@ A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 re
 > **Heat-deficit caveat.** This pathway carries a {{ dispatch.deficit_analysis.deficit_pct }}% heat deficit ({{ dispatch.deficit_analysis.deficit_gwh }} GWh/yr unmet demand) — i.e. the proposed stack does **not** deliver all of the site's process-heat demand under the simulated dispatch. The carbon savings figure above assumes the deficit is closed by retained gas at η = {{ dispatch.deficit_analysis.closure_assumption_boiler_eff }} (DEFRA 2026 EF). Closing it raises Scope 1 by ~{{ dispatch.deficit_analysis.additional_scope_1_if_gas_closed_t_co2e|fmt_int }} tCO₂e to ~**{{ dispatch.deficit_analysis.scope_1_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**, and Scope 1+2 to ~**{{ dispatch.deficit_analysis.scope_1_2_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**. Either uprate the electrified capacity or accept a residual gas commitment for senior review.
 {% endif %}
 
-Investment-pathway sequencing, Monte-Carlo NPV bands, pinch analysis, formal grid-connection assessment and reliability sizing are deferred to subsequent engine releases (see roadmap badges below).
+Pinch analysis, formal grid-connection assessment and reliability sizing are deferred to subsequent engine releases (see roadmap badges below). Investment-pathway sequencing (§4) and Monte-Carlo NPV bands with Sobol sensitivity (§4.1) are live in this release.
 
 ---
 
