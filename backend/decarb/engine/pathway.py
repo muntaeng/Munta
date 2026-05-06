@@ -763,6 +763,13 @@ def _evaluate_pathway(
             round(lcoh_gbp_per_mwh, 1) if lcoh_gbp_per_mwh is not None else None
         ),
         "year_15_reduction_pct": round(year_15_reduction_pct, 1),
+        # Phase 4 of assessment_2026_05_06_fixes (D4): expose
+        # baseline-y0 and pathway-y15 carbon totals as named fields so
+        # the §1 Executive Summary can lead with the horizon-end figure
+        # without the renderer doing arithmetic. Both are Scope 1+2
+        # totals on the location-based basis used elsewhere.
+        "baseline_year_0_carbon_t_co2e": round(baseline_y0_carbon, 1),
+        "year_15_total_carbon_t_co2e": round(pathway_y15_carbon, 1),
         "cumulative_carbon_abated_t_co2e": round(cumulative_abated_t, 0),
         "cashflows_gbp": [round(c, 0) for c in cashflows],
         "annual_dispatch_cost_gbp": [round(c, 0) for c in annual_dispatch_costs],
