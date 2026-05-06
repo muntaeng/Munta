@@ -134,6 +134,7 @@ def render_report(
     screen_result: dict,
     dispatch_result: dict,
     pathway_result: dict | None = None,
+    uncertainty_result: dict | None = None,
     format: str = "markdown",
     include_appendices: bool = True,
     output_dir: Path | str | None = None,
@@ -168,6 +169,14 @@ def render_report(
         parse_result, carbon_result, screen_result, dispatch_result,
         pathway_result,
     )
+    if uncertainty_result:
+        for entry in uncertainty_result.get("provenance", []) or []:
+            tagged = {"module": "monte_carlo_uncertainty"}
+            tagged.update(entry)
+            provenance.append(tagged)
+        for std in uncertainty_result.get("standards_cited", []) or []:
+            if std not in standards:
+                standards.append(std)
 
     # Prefer the recommended (Balanced) pathway's year-1 dispatch over
     # the canonical hand-spec dispatch when both are available — issue
@@ -202,6 +211,7 @@ def render_report(
         pathway_dispatch_pathway_name=pathway_dispatch_pathway_name,
         pathway_dispatch_calendar_year=pathway_dispatch_calendar_year,
         pathway=pathway_result,
+        uncertainty=uncertainty_result,
         provenance=provenance,
         standards=standards,
         include_appendices=include_appendices,

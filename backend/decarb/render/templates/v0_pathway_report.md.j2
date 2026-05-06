@@ -234,6 +234,31 @@ Method context (every number traces to a deterministic engine call):
 *No installs — baseline (do-nothing) reference pathway.*
 {% endif %}
 
+{% if name == 'balanced' and uncertainty and uncertainty.pathway_name == 'balanced' %}
+{% set u_ns = namespace(npv=uncertainty.npv_distribution, top=uncertainty.sobol.top_total_order) %}
+
+*Uncertainty (Monte Carlo, {{ uncertainty.n_trials }} trials)*  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
+
+| Risk metric | Value |
+|---|---:|
+| NPV P10 | £{{ u_ns.npv.p10_gbp|fmt_int }} |
+| NPV P50 (median) | £{{ u_ns.npv.p50_gbp|fmt_int }} |
+| NPV P90 | £{{ u_ns.npv.p90_gbp|fmt_int }} |
+| Probability NPV > 0 | {{ uncertainty.prob_npv_positive|fmt_pct }} |
+| VaR 95% (loss, £) | £{{ uncertainty.var_95_npv_gbp|fmt_int }} |
+| CVaR 95% (loss, £) | £{{ uncertainty.cvar_95_npv_gbp|fmt_int }} |
+
+Top-3 Sobol total-order sensitivities on NPV (most-influential uncertain inputs):
+
+| Rank | Input | Total-order index |
+|---:|---|---:|
+{% for s in u_ns.top[:3] %}
+| {{ loop.index }} | `{{ s.name }}` | {{ s.value|fmt_float(3) }} |
+{% endfor %}
+
+Method: LHS + Iman-Conover Gaussian copula (gas↔elec ρ={{ uncertainty.correlations_target[0].rho if uncertainty.correlations_target else '—' }}); Saltelli sample for Sobol; closed-form pathway re-evaluation (no per-trial dispatch in v0). Seed = {{ uncertainty.seed }}.
+{% endif %}
+
 {% endif %}
 {% endfor %}
 
