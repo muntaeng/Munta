@@ -29,6 +29,8 @@ from decarb.engine.carbon import compute_baseline_carbon as _compute_baseline_ca
 from decarb.engine.dispatch import simulate_site_dispatch as _simulate_site_dispatch
 from decarb.engine.screen import screen_technologies as _screen_technologies
 from decarb.engine.pathway import optimise_investment_pathway as _optimise_investment_pathway
+from decarb.engine.uncertainty import monte_carlo_uncertainty as _monte_carlo_uncertainty
+from decarb.engine.dispatch import DEFAULT_MARKET_SIGNALS
 from decarb.render import render_report as _render_report
 from decarb.corpus.db import get_conn, search_chunks
 from decarb.corpus.embed import embed_single, get_client as _get_embed_client
@@ -227,8 +229,102 @@ def optimise_investment_pathway(**kwargs: Any) -> dict[str, Any]:
 
 
 def monte_carlo_uncertainty(**kwargs: Any) -> dict[str, Any]:
-    """STUB. Implemented Week 2 — see week2_engine_modules.md §7."""
-    return {"_stub": True, "tool": "monte_carlo_uncertainty"}
+    """v0 Monte Carlo over a deterministic pathway. Pulls the pathway and
+    deterministic-baseline arrays from the accumulated site_context (the
+    agent has run optimise_investment_pathway first), runs the closed-form
+    LHS + Iman-Conover copula + Sobol + Morris pipeline, and stashes the
+    full result on engine_results so the renderer can pick it up.
+
+    LLM-facing return is compact (key risk metrics + Sobol top-3); the full
+    NPV sample array stays inside engine_results."""
+    pw_full = (_site_context.get("engine_results") or {}).get(
+        "optimise_investment_pathway"
+    )
+    if not pw_full:
+        return {
+            "error": (
+                "monte_carlo_uncertainty needs optimise_investment_pathway "
+                "in engine_results — run optimise_investment_pathway first."
+            )
+        }
+    pw_name = kwargs.get("pathway_name", "balanced")
+    n_trials = int(kwargs.get("n_trials", 1000))
+    seed = int(kwargs.get("seed", 42))
+    uncertain_inputs = kwargs.get("uncertain_inputs")
+    carbon_target = kwargs.get("carbon_target_trajectory")
+
+    # Baseline arrays may have been pre-computed by the agent driver and
+    # cached in site_context; otherwise compute them on the fly using a
+    # gas-only dispatch over the planning horizon.
+    baseline_cost = _site_context.get("baseline_annual_cost_gbp_per_year")
+    baseline_carbon = _site_context.get("baseline_annual_carbon_t_per_year")
+    if baseline_cost is None or baseline_carbon is None:
+        baseline_cost, baseline_carbon = _gas_only_baseline_arrays(pw_full)
+        _site_context["baseline_annual_cost_gbp_per_year"] = baseline_cost
+        _site_context["baseline_annual_carbon_t_per_year"] = baseline_carbon
+
+    full = _monte_carlo_uncertainty(
+        pw_full,
+        pathway_name=pw_name,
+        baseline_annual_cost_gbp_per_year=baseline_cost,
+        baseline_annual_carbon_t_per_year=baseline_carbon,
+        uncertain_inputs=uncertain_inputs,
+        n_trials=n_trials,
+        seed=seed,
+        carbon_target_trajectory=carbon_target,
+    )
+    _record_engine_output("monte_carlo_uncertainty", full)
+    npv = full["npv_distribution"]
+    return {
+        "pathway_name": pw_name,
+        "n_trials": full["n_trials"],
+        "seed": full["seed"],
+        "npv_p10_gbp": npv["p10_gbp"],
+        "npv_p50_gbp": npv["p50_gbp"],
+        "npv_p90_gbp": npv["p90_gbp"],
+        "npv_mean_gbp": npv["mean_gbp"],
+        "prob_npv_positive": full["prob_npv_positive"],
+        "prob_carbon_target_met": full["prob_carbon_target_met"],
+        "var_95_npv_gbp": full["var_95_npv_gbp"],
+        "cvar_95_npv_gbp": full["cvar_95_npv_gbp"],
+        "sobol_top_total_order": full["sobol"]["top_total_order"][:3],
+        "correlation_check_ok": full["correlation_check"]["ok"],
+        "warning_codes": [w.get("code") for w in full.get("warnings", [])],
+    }
+
+
+def _gas_only_baseline_arrays(pw_full: dict[str, Any]) -> tuple[list[float], list[float]]:
+    """Fallback: compute the gas-only baseline arrays using simulate_site_dispatch
+    on a synthetic gas-only stack. Used when the caller hasn't pre-cached them."""
+    horizon = int(pw_full.get("planning_horizon_years", 15))
+    base_year = int(pw_full.get("base_year", 2026))
+    energy_profile = (_site_context.get("engine_results") or {}).get("parse_energy_profile") \
+        or _site_context.get("energy_profile")
+    site_brief = _site_context.get("site_brief") or {}
+    if not energy_profile:
+        return [0.0] * horizon, [0.0] * horizon
+    gas_kw = 0.0
+    for b in site_brief.get("existing_plant", {}).get("boilers", []):
+        if "gas" in str(b.get("type", "")).lower():
+            gas_kw += float(b.get("capacity_mw", 0.0)) * 1000.0
+    gas_kw = max(gas_kw, 10_000.0)
+    bcost: list[float] = []
+    bcarb: list[float] = []
+    for y in range(horizon):
+        d = _simulate_site_dispatch(
+            energy_profile=energy_profile,
+            technology_stack=[{
+                "type": "gas_boiler", "id": "baseline_gas",
+                "capacity_kw": gas_kw, "efficiency": 0.85,
+                "serves_end_uses": ["steam", "hot_water"],
+            }],
+            market_signals=DEFAULT_MARKET_SIGNALS,
+            dispatch_policy="merit_order",
+            year=base_year + y,
+        )
+        bcost.append(float(d.get("annual_summary", {}).get("total_energy_cost_gbp", 0.0)))
+        bcarb.append(float(d.get("carbon_summary", {}).get("total_t_co2e", 0.0)))
+    return bcost, bcarb
 
 
 def compute_safety_constraints(**kwargs: Any) -> dict[str, Any]:
@@ -518,15 +614,56 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "monte_carlo_uncertainty",
-        "description": "STUB Week 2. Monte Carlo on NPV and carbon trajectory with Sobol sensitivity.",
+        "description": (
+            "v0 Monte Carlo on a deterministic optimise_investment_pathway "
+            "result. Three independent sampling passes: (1) Latin Hypercube "
+            "+ Iman-Conover Gaussian-copula correlation (default ρ=0.6 "
+            "between gas and electricity) → main NPV / carbon distribution "
+            "with P10/P50/P90, VaR_95, CVaR_95, prob_npv_positive, "
+            "prob_carbon_target_met; (2) Saltelli sample → Sobol first- "
+            "and total-order sensitivity indices on NPV; (3) Morris "
+            "elementary effects for screening sensitivity. Inner loop is "
+            "a closed-form perturbation (no per-trial dispatch) — see "
+            "engine/uncertainty.py docstring for limitations. Reads the "
+            "deterministic pathway from accumulated site context."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "scenario_id": {"type": "string", "description": "Which pathway scenario to stress-test"},
-                "n_samples": {"type": "integer", "default": 1000},
-                "uncertain_params": {"type": "array", "items": {"type": "string"}, "description": "e.g. ['gas_price', 'electricity_price', 'grid_carbon_intensity']"},
+                "pathway_name": {
+                    "type": "string",
+                    "enum": ["conservative", "balanced", "aggressive"],
+                    "default": "balanced",
+                    "description": "Which named pathway from optimise_investment_pathway to stress-test.",
+                },
+                "n_trials": {
+                    "type": "integer", "default": 1000,
+                    "description": "LHS sample size for the main NPV / carbon distribution.",
+                },
+                "seed": {
+                    "type": "integer", "default": 42,
+                    "description": "Numpy RNG seed; same seed → bit-identical output.",
+                },
+                "uncertain_inputs": {
+                    "type": "object",
+                    "description": (
+                        "Optional override of the default uncertain-input schedule. "
+                        "Each entry: {name: {kind: 'triangular'|'bernoulli', "
+                        "params: [...], comment: '...'}}. Defaults: "
+                        "electricity_price, gas_price, hp_capex_multiplier, "
+                        "grid_carbon_intensity, ietf_grant_outcome, demand_growth."
+                    ),
+                },
+                "carbon_target_trajectory": {
+                    "type": "array", "items": {"type": "number"},
+                    "description": (
+                        "Per-year tCO2e ceiling for prob_carbon_target_met. "
+                        "Default: linear glide from baseline year-0 carbon "
+                        "to zero at horizon-end (UK Net Zero proxy)."
+                    ),
+                },
             },
-            "required": ["scenario_id"],
+            "required": [],
         },
     },
     {

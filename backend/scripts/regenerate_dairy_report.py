@@ -12,10 +12,11 @@ import json
 from pathlib import Path
 
 from decarb.engine.carbon import compute_baseline_carbon
-from decarb.engine.dispatch import simulate_site_dispatch
+from decarb.engine.dispatch import DEFAULT_MARKET_SIGNALS, simulate_site_dispatch
 from decarb.engine.parse import parse_energy_profile
 from decarb.engine.pathway import optimise_investment_pathway
 from decarb.engine.screen import screen_technologies
+from decarb.engine.uncertainty import monte_carlo_uncertainty
 from decarb.render import render_report
 
 
@@ -103,6 +104,49 @@ def main() -> None:
         pathway_selection_rule="max_reduction_positive_npv",
     )
 
+    # Gas-only baseline arrays for the Monte Carlo closed-form pathway
+    # re-evaluation. Same accounting conventions as the optimiser's own
+    # baseline (TOU tariffs, 0.85 boiler eff) so uncertainty stays
+    # apples-to-apples with the deterministic pathway.
+    horizon = pathway_result["planning_horizon_years"]
+    base_year = pathway_result["base_year"]
+    gas_backup_kw = 0.0
+    for b in site_brief.get("existing_plant", {}).get("boilers", []):
+        if "gas" in str(b.get("type", "")).lower():
+            gas_backup_kw += float(b.get("capacity_mw", 0.0)) * 1000.0
+    gas_backup_kw = max(gas_backup_kw, 10_000.0)
+    baseline_cost: list[float] = []
+    baseline_carbon: list[float] = []
+    for y in range(horizon):
+        d = simulate_site_dispatch(
+            energy_profile=parse_result,
+            technology_stack=[{
+                "type": "gas_boiler",
+                "id": "baseline_gas_only",
+                "capacity_kw": gas_backup_kw,
+                "efficiency": 0.85,
+                "serves_end_uses": ["steam", "hot_water"],
+            }],
+            market_signals=DEFAULT_MARKET_SIGNALS,
+            dispatch_policy="merit_order",
+            year=base_year + y,
+        )
+        baseline_cost.append(
+            float(d.get("annual_summary", {}).get("total_energy_cost_gbp", 0.0))
+        )
+        baseline_carbon.append(
+            float(d.get("carbon_summary", {}).get("total_t_co2e", 0.0))
+        )
+
+    uncertainty_result = monte_carlo_uncertainty(
+        pathway_result,
+        pathway_name="balanced",
+        baseline_annual_cost_gbp_per_year=baseline_cost,
+        baseline_annual_carbon_t_per_year=baseline_carbon,
+        n_trials=1000,
+        seed=42,
+    )
+
     ts = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     out = render_report(
         site_brief=site_brief,
@@ -111,6 +155,7 @@ def main() -> None:
         screen_result=screen_result,
         dispatch_result=dispatch_result,
         pathway_result=pathway_result,
+        uncertainty_result=uncertainty_result,
         format="markdown",
         include_appendices=True,
         timestamp=ts,
