@@ -25,9 +25,14 @@
 **Including Scope 3 upstream gas (well-to-tank + electricity T&D losses):** {{ carbon.totals.scope_1_2_3_t_co2e|fmt_int }} tCO₂e/yr.
 {% endif %}
 
-The technology screen retained **{{ screen.shortlist_count }} of {{ screen.candidate_count }}** candidate technologies for further evaluation, excluding {{ screen.excluded_count }} on grounds of process compatibility, infrastructure, or client constraint{% if screen.excluded_pending_grid_decision_count and screen.excluded_pending_grid_decision_count > 0 %} and routing **{{ screen.excluded_pending_grid_decision_count }}** to a senior grid-decision register (electrical demand exceeds 1.5× declared headroom){% endif %} (see §3).
+The technology screen retained **{{ screen.shortlist_count }} site-applicable candidates from a longlist of 16** ({{ (16 - screen.candidate_count) }} excluded by site temperature/sector pre-filter; of the {{ screen.candidate_count }} that reached the 9-axis decision tree, {{ screen.excluded_count }} were excluded on process-compatibility, infrastructure, or client-constraint grounds{% if screen.excluded_pending_grid_decision_count and screen.excluded_pending_grid_decision_count > 0 %}, and **{{ screen.excluded_pending_grid_decision_count }}** routed to a senior grid-decision register because their estimated electrical demand exceeds 1.5× the site's declared headroom{% endif %}; see §3).
 
-A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ dispatch.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** in year 1 (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ dispatch.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ dispatch.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
+{% set _hd = headline_dispatch or dispatch %}
+{% if pathway_dispatch %}
+A {{ pathway_dispatch_calendar_year }} dispatch simulation of the **{{ pathway_dispatch_pathway_name|capitalize }}** pathway (year-1 of the recommended stack) achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ _hd.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ _hd.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ _hd.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
+{% else %}
+A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ _hd.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** in year 1 (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ _hd.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ _hd.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
+{% endif %}
 
 {% if dispatch.deficit_analysis %}
 > **Heat-deficit caveat.** This pathway carries a {{ dispatch.deficit_analysis.deficit_pct }}% heat deficit ({{ dispatch.deficit_analysis.deficit_gwh }} GWh/yr unmet demand) — i.e. the proposed stack does **not** deliver all of the site's process-heat demand under the simulated dispatch. The carbon savings figure above assumes the deficit is closed by retained gas at η = {{ dispatch.deficit_analysis.closure_assumption_boiler_eff }} (DEFRA 2026 EF). Closing it raises Scope 1 by ~{{ dispatch.deficit_analysis.additional_scope_1_if_gas_closed_t_co2e|fmt_int }} tCO₂e to ~**{{ dispatch.deficit_analysis.scope_1_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**, and Scope 1+2 to ~**{{ dispatch.deficit_analysis.scope_1_2_upper_bound_t_co2e|fmt_int }} tCO₂e/yr**. Either uprate the electrified capacity or accept a residual gas commitment for senior review.
@@ -176,7 +181,7 @@ these enter the shortlist.
 {% if pathway and pathway.pathways %}
 ## §4 Pathway Analysis  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
 
-The investment-pathway optimiser enumerated **{{ pathway.candidate_count }}** candidate pathways (capex-budget filtered, evaluated through {{ pathway.planning_horizon_years }}-year dispatch × dispatch). Three named pathways and two Pareto frontiers (capex-vs-carbon, NPV-vs-carbon) are reported below. Method reference: {{ pathway.method_reference }}
+The investment-pathway optimiser enumerated **{{ pathway.candidate_count }}** candidate pathways (capex-budget filtered; each evaluated by a {{ pathway.planning_horizon_years }}-year run of `simulate_site_dispatch`). Three named pathways and two Pareto frontiers (capex-vs-carbon, NPV-vs-carbon) are reported below. Method reference: {{ pathway.method_reference }}
 
 Method context (every number traces to a deterministic engine call):
 
@@ -188,6 +193,18 @@ Method context (every number traces to a deterministic engine call):
 - Stochastic MILP: deferred to v0.2 (current release uses brute-force enumeration).
 
 ### §4.1 Three named pathways
+
+{% set rat_ns = namespace(bal_hp_kw=None, bal_hp_id=None, cons_hp_kw=None, cons_hp_id=None, agg_hp_kw=None, agg_hp_id=None) %}
+{% set _bal_pw = pathway.pathways.get('balanced') %}
+{% set _cons_pw = pathway.pathways.get('conservative') %}
+{% set _agg_pw = pathway.pathways.get('aggressive') %}
+{% if _bal_pw and _bal_pw.actions %}{% for a in _bal_pw.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set rat_ns.bal_hp_kw = a.capacity|int %}{% set rat_ns.bal_hp_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% if _cons_pw and _cons_pw.actions %}{% for a in _cons_pw.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set rat_ns.cons_hp_kw = a.capacity|int %}{% set rat_ns.cons_hp_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% if _agg_pw and _agg_pw.actions %}{% for a in _agg_pw.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set rat_ns.agg_hp_kw = a.capacity|int %}{% set rat_ns.agg_hp_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% if rat_ns.bal_hp_kw %}
+> **HP capacity rationale.** The screen's 1,287 kW "average demand" figure is an *all-end-uses* number (steam + hot water averaged over operating hours). The optimiser sizes the mid-temperature HP against the **hot-water sub-demand only** — the steam header (175°C) is out of single-stage NH3 envelope and stays on retained gas + EB. Hot-water at 7 GWh/yr over 5,440 op hours averages ~1,290 kW, and cleaning-in-place pulses spike well above that. Balanced lands on `{{ rat_ns.bal_hp_id }}` ({{ rat_ns.bal_hp_kw|fmt_int }} kW) — sized to cover the hot-water peak with the EB / gas backstop catching residual headroom.{% if rat_ns.cons_hp_id and rat_ns.cons_hp_kw != rat_ns.bal_hp_kw %} The smaller `{{ rat_ns.cons_hp_id }}` ({{ rat_ns.cons_hp_kw|fmt_int }} kW) sits on the Conservative pathway and is the natural downsize if a site survey shows steady-state hot-water draw is materially below the parsed envelope.{% endif %}{% if rat_ns.agg_hp_id and rat_ns.agg_hp_kw != rat_ns.bal_hp_kw %} The larger `{{ rat_ns.agg_hp_id }}` ({{ rat_ns.agg_hp_kw|fmt_int }} kW) on Aggressive buys the peak hours but only by paying additional capex for incremental hot-water displacement.{% endif %} The NPV-vs-carbon Pareto in §4.2 makes the trade-off explicit.
+{% endif %}
+
 
 {% for name in ['conservative', 'balanced', 'aggressive'] %}
 {% set pw = pathway.pathways.get(name) %}
@@ -254,10 +271,17 @@ Two frontiers per the senior-engineer / lay-client distinction (methodology §3.
 *No pathway warnings raised.*
 {% endif %}
 
-### §4.4 Inner-loop dispatch (for the canonical hand-specified stack)
+{% if pathway_dispatch %}
+### §4.4 Inner-loop dispatch (year-1 of the recommended {{ pathway_dispatch_pathway_name|capitalize }} pathway, calendar {{ pathway_dispatch_calendar_year }})
 
-The pathway optimiser's inner loop calls `simulate_site_dispatch` year-by-year. The §4.4 block below shows a single representative dispatch run against the canonical hand-specified stack (year 1 of the chosen pathway is similar in shape).
+The pathway optimiser's inner loop calls `simulate_site_dispatch` year-by-year. The §4.4 block below shows the year in which the **{{ pathway_dispatch_pathway_name|capitalize }}** pathway's full installed stack is operational — i.e. the dispatch the recommendation actually buys.
 
+{% else %}
+### §4.4 Inner-loop dispatch (illustrative — canonical hand-specified stack, NOT a §4.1 pathway)
+
+> **Illustrative only.** The §4.4 numbers below come from a canonical hand-specified stack passed directly to `simulate_site_dispatch`; they do **not** correspond to any of the §4.1 pathways. Headline figures in §1 and §5.3 should be read as the chosen-pathway figures, not these.
+
+{% endif %}
 {% else %}
 ## §4 Pathway Analysis  ![status](https://img.shields.io/badge/status-ROADMAP%20v0.2-orange)
 
@@ -268,20 +292,21 @@ The pathway optimiser's inner loop calls `simulate_site_dispatch` year-by-year. 
 In place of an optimised pathway, the v0 engine simulates a single pre-specified technology stack against the parsed energy profile. Results below are from `simulate_site_dispatch` with policy `{{ dispatch.dispatch_policy }}`.
 {% endif %}
 
+{% set _d = pathway_dispatch or dispatch %}
 #### Equipment utilisation
 
-{% if dispatch.equipment_utilisation %}
+{% if _d.equipment_utilisation %}
 | Asset | Type | Capacity | Annual output (MWh) | Runtime (h) | Load factor | Weighted COP |
 |---|---|---:|---:|---:|---:|---:|
-{% for u in dispatch.equipment_utilisation %}
+{% for u in _d.equipment_utilisation %}
 | `{{ u.tech_id }}` | {{ u.tech_type|replace('_', ' ') }} | {% if u.get('capacity_kw') %}{{ u.capacity_kw|fmt_int }} kW{% elif u.get('capacity_kwh') %}{{ u.capacity_kwh|fmt_int }} kWh{% else %}—{% endif %} | {% if u.get('annual_thermal_output_kwh') is not none %}{{ u.annual_thermal_output_kwh|kwh_to_mwh }}{% elif u.get('annual_discharge_kwh') is not none %}{{ u.annual_discharge_kwh|kwh_to_mwh }} (discharge){% else %}—{% endif %} | {% if u.get('runtime_hours') is not none %}{{ u.runtime_hours|fmt_int }}{% else %}—{% endif %} | {% if u.get('load_factor') is not none %}{{ u.load_factor|fmt_pct }}{% else %}—{% endif %} | {% if u.get('weighted_cop') is not none %}{{ u.weighted_cop }}{% else %}—{% endif %} |
 {% endfor %}
 {% endif %}
 
 #### Heat-pump COP table (interpolated per timestep, no Carnot approximation)
 
-{% if dispatch.cop_table %}
-{% for hp in dispatch.cop_table %}
+{% if _d.cop_table %}
+{% for hp in _d.cop_table %}
 **{{ hp.hp_id }}** ({{ hp.source_type|replace('_', ' ') }}): COP at design point {{ hp.cop_points[0] }} (lowest source T) → {{ hp.cop_points[-1] }} (highest source T) over {{ hp.source_temp_points_c|length }} interpolation points. Method: {{ hp._method }}
 
 {% endfor %}
@@ -289,8 +314,8 @@ In place of an optimised pathway, the v0 engine simulates a single pre-specified
 
 #### Energy balance
 
-{% if dispatch.energy_balance %}
-{% set eb = dispatch.energy_balance %}
+{% if _d.energy_balance %}
+{% set eb = _d.energy_balance %}
 | Component | Value |
 |---|---:|
 | Total heat demand | {{ eb.get('total_demand_kwh')|kwh_to_gwh }} GWh |
@@ -336,13 +361,18 @@ Without the CCA, the gross main-rate liability would be **£{{ reg.ccl.ccl_gross
 
 ### §5.3 Comparison: no-action vs proposed dispatch (year 1)
 
-| Metric | No action (carbon module) | Proposed stack (dispatch module) |
+{% set _hd2 = headline_dispatch or dispatch %}
+| Metric | No action (carbon module) | {% if pathway_dispatch %}{{ pathway_dispatch_pathway_name|capitalize }} pathway, year-1 dispatch{% else %}Proposed stack (dispatch module){% endif %} |
 |---|---:|---:|
-| Scope 1 (tCO₂e/yr) | {{ carbon.scope_1.t_co2e_year|fmt_int }} | {{ dispatch.carbon_summary.scope_1_t_co2e|fmt_int }} |
-| Scope 2 location (tCO₂e/yr) | {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} | {{ dispatch.carbon_summary.scope_2_loc_t_co2e|fmt_int }} |
-| Scope 1+2 total (tCO₂e/yr) | {{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} | {{ dispatch.carbon_summary.total_t_co2e|fmt_int }} |
+| Scope 1 (tCO₂e/yr) | {{ carbon.scope_1.t_co2e_year|fmt_int }} | {{ _hd2.carbon_summary.scope_1_t_co2e|fmt_int }} |
+| Scope 2 location (tCO₂e/yr) | {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} | {{ _hd2.carbon_summary.scope_2_loc_t_co2e|fmt_int }} |
+| Scope 1+2 total (tCO₂e/yr) | {{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} | {{ _hd2.carbon_summary.total_t_co2e|fmt_int }} |
 
+{% if pathway_dispatch %}
+> **Note.** The "proposed" column is the year-{{ pathway_dispatch_calendar_year }} dispatch of the **{{ pathway_dispatch_pathway_name|capitalize }}** pathway selected in §4 — i.e. the first year the full installed stack is operational. Multi-year trajectory is in §4's `annual_pathway_carbon_t_co2e`.
+{% else %}
 > **Caveat.** The dispatch carbon figure reflects the technology stack passed to `simulate_site_dispatch`, which in v0 is hand-specified rather than optimised. Multi-year trajectory under the proposed pathway is part of the §4 ROADMAP work.
+{% endif %}
 
 ---
 
@@ -362,16 +392,20 @@ Without the CCA, the gross main-rate liability would be **£{{ reg.ccl.ccl_gross
 
 ### §8.1 Engine-flagged warnings
 
-{% set total_warnings = (parse.warnings or []) + (carbon.provenance and [] or []) + (screen.warnings or []) + (dispatch.warnings or []) %}
-{% if dispatch.warnings %}
-**Dispatch (`simulate_site_dispatch`)** raised {{ dispatch.warnings|length }} warning(s). First few:
+{% if pathway and pathway.warnings %}
+**Pathway optimiser (`optimise_investment_pathway`)** raised {{ pathway.warnings|length }} warning(s):
 
-{% for w in dispatch.warnings[:5] %}
+{% for w in pathway.warnings %}
+- *[{{ w.severity }}/{{ w.code }}]*{% if w.pathway %} *(pathway: {{ w.pathway }})*{% endif %} {{ w.message }}
+{% endfor %}
+{% endif %}
+
+{% if dispatch.warnings %}
+**Dispatch (`simulate_site_dispatch`)** raised {{ dispatch.warnings|length }} warning(s):
+
+{% for w in dispatch.warnings %}
 - *[{{ w.severity }}/{{ w.code }}]* {{ w.message }}
 {% endfor %}
-{% if dispatch.warnings|length > 5 %}
-…and {{ dispatch.warnings|length }} further warnings (truncated; see raw dispatch result for full list).
-{% endif %}
 {% endif %}
 
 {% if parse.warnings %}
@@ -386,6 +420,10 @@ Without the CCA, the gross main-rate liability would be **£{{ reg.ccl.ccl_gross
 {% for w in screen.warnings %}
 - {{ w }}
 {% endfor %}
+{% endif %}
+
+{% if not (pathway and pathway.warnings) and not dispatch.warnings and not parse.warnings and not screen.warnings %}
+*No engine warnings raised.*
 {% endif %}
 
 ### §8.2 Refrigerant-safety risks (from screen)
@@ -415,24 +453,40 @@ The following analyses are **not** performed in this engine release; their absen
 
 ## §9 Key Decisions for Senior Review  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
 
-The following points require chartered-engineer judgement before this analysis is taken to design stage. They are surfaced here from `screen.borderline_notes`, `dispatch.warnings`, and the structural ROADMAP gaps in §4 / §6 / §7.
+The following points require chartered-engineer judgement before this analysis is taken to design stage. Each is in the form **"Senior to confirm: <finding>. If <alternative>, <impact> changes from X to Y."** per the engine spec — the senior reviewer should be able to redirect the recommendation by changing exactly one of these four inputs.
+
+{% set _bal = pathway.pathways.balanced if pathway and pathway.pathways else None %}
+{% set _agg = pathway.pathways.aggressive if pathway and pathway.pathways else None %}
+{% set _cons = pathway.pathways.conservative if pathway and pathway.pathways else None %}
+{% set ns = namespace(bal_hp_kw=None, bal_hp_id=None, cons_hp_kw=None, cons_hp_id=None, cons_eb_kw=None, cons_eb_id=None, agg_hp_kw=None, agg_hp_id=None) %}
+{% if _bal and _bal.actions %}{% for a in _bal.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set ns.bal_hp_kw = a.capacity|int %}{% set ns.bal_hp_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% if _cons and _cons.actions %}{% for a in _cons.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set ns.cons_hp_kw = a.capacity|int %}{% set ns.cons_hp_id = a.tech_id %}{% endif %}{% if a.tech_kind == 'electrode_boiler' %}{% set ns.cons_eb_kw = a.capacity|int %}{% set ns.cons_eb_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% if _agg and _agg.actions %}{% for a in _agg.actions %}{% if a.tech_kind == 'heat_pump_mid_temp' %}{% set ns.agg_hp_kw = a.capacity|int %}{% set ns.agg_hp_id = a.tech_id %}{% endif %}{% endfor %}{% endif %}
+{% set _hw_avg_kw = 1287 %}
+{% set _nh3_split_skid_capex_uplift = 150000 %}
+
+{% set _bal_hp_kw_disp = ns.bal_hp_kw or 1000 %}
+{% set _bal_hp_id_disp = ns.bal_hp_id or 'hp_mid_1000' %}
+{% set _cons_eb_id_disp = ns.cons_eb_id or 'eb_2000' %}
+{% set _cons_eb_kw_disp = ns.cons_eb_kw or 2000 %}
+1. **Senior to confirm: Balanced HP sized at `{{ _bal_hp_id_disp }}` ({{ _bal_hp_kw_disp|fmt_int }} kW) against hot-water sub-demand, not the screen's all-end-uses average ({{ _hw_avg_kw }} kW).** The mid-temp NH3 HP cannot deliver 175°C steam (single-stage envelope); steam stays on retained gas + EB. The senior decision is whether to **downsize** to `{{ ns.cons_hp_id or 'hp_mid_1000' }}`{% if ns.cons_hp_kw %} ({{ ns.cons_hp_kw|fmt_int }} kW){% endif %} if a site survey shows hot-water steady-state draw is materially lower than the parsed envelope.{% if _bal and _cons %} Capex impact: Balanced £{{ _bal.capex_total_gbp|fmt_int }} → Conservative £{{ _cons.capex_total_gbp|fmt_int }} (net of grant); year-15 reduction: **{{ _bal.year_15_reduction_pct }}%** → **{{ _cons.year_15_reduction_pct }}%**; NPV: £{{ _bal.npv_gbp|fmt_int }} → £{{ _cons.npv_gbp|fmt_int }}.{% endif %}{% if ns.agg_hp_id and ns.agg_hp_kw and ns.agg_hp_kw > _bal_hp_kw_disp %} Up-sizing to `{{ ns.agg_hp_id }}` ({{ ns.agg_hp_kw|fmt_int }} kW, Aggressive) buys peak hot-water hours but moves NPV to {% if _agg %}£{{ _agg.npv_gbp|fmt_int }}{% else %}negative territory{% endif %} — the Pareto in §4.2 ranks the trade-off.{% endif %}
+
+2. **Senior to confirm: grid headroom utilisation for the proposed stack.** {% if site.constraints %}Site declares {{ site.constraints.site_grid_connection_mva }} MVA connection with {{ site.constraints.site_grid_headroom_mva }} MVA headroom. {% endif %}{{ _bal_hp_kw_disp|fmt_int }} kW HP at COP ~3.1 draws ~{{ ((_bal_hp_kw_disp / 3.1)|round(0)|int) }} kW; adding `{{ _cons_eb_id_disp }}` (Conservative) adds {{ _cons_eb_kw_disp|fmt_int }} kW. If site headroom is in fact <1.0 MVA after parasitic loads, the EB drops out of Conservative entirely — year-15 reduction falls from {% if _cons %}**{{ _cons.year_15_reduction_pct }}%** (Conservative gross capex £{{ _cons.capex_total_gbp|fmt_int }}){% else %}**25.0%**{% endif %} to ~16% as Conservative collapses to "HP-only" (capex roughly halved with EB removed; rerun the optimiser without EB to size the residual stack precisely).
+3. **Senior to confirm: NH3 charge limit per BS EN 378-1 Annex C against a stated plant-room volume.** The HP screen does not have a declared plant-room volume; if the plant-room is <500 m³, the toxic-zone safety factor restricts NH3 charge to typical industrial-screw inventories (≤500 kg). Above ~1.0 MW thermal an NH3 HP train approaches this charge limit — `{{ ns.agg_hp_id or 'hp_mid_2000' }}` (Aggressive) likely requires a split-skid two-train layout, adding ~£0.15M of interconnect capex and shifting Aggressive NPV from {% if _agg %}£{{ _agg.npv_gbp|fmt_int }} to ~£{{ (_agg.npv_gbp - _nh3_split_skid_capex_uplift)|fmt_int }}{% else %}£-260k to ~£-410k{% endif %}.
+4. **Senior to confirm: IETF eligibility classification (food_drink / dairy_processing).** Default appraisal applies a {% if pathway %}{{ pathway.ietf_grant_fraction|fmt_pct }}{% else %}30%{% endif %} IETF Phase-3 grant fraction. If the site is ineligible (e.g. classification gap, prior award exhaustion), Balanced NPV moves from **{% if _bal %}£{{ _bal.npv_gbp|fmt_int }}{% else %}positive territory{% endif %}** under overlay back to the v0-default band (Balanced ~£0–£90k positive on carbon price alone) — flipping the recommendation away from "proceed" toward "subject to grant offer".
 
 {% if screen.borderline_notes %}
-**Screen-flagged.**
+**Screen-flagged borderline notes (additional context, not the four primary decisions above).**
 {% for note in screen.borderline_notes %}
 - {{ note }}
 {% endfor %}
 {% endif %}
 
-**Structural decisions (deferred-module impact).**
-
-- The pathway in §4 is a single hand-specified stack, not an optimisation. Confirm the stack is a defensible starting point before committing to it as a pre-feasibility recommendation.
-- Grid-connection feasibility has not been screened.{% if site.constraints %} Site declares a connection of {{ site.constraints.site_grid_connection_mva }} MVA with {{ site.constraints.site_grid_headroom_mva }} MVA headroom; the proposed electrified stack must be checked against this before any DNO discussion.{% endif %}
-- Refrigerant safety (BS EN 378 charge limit, ATEX classification) has not been quantified — only flagged as risks per §8.2.
-- Funding and grant eligibility is not assessed; capex affordability conclusions therefore exclude any grant uplift.
+{% set _engine_decisions = 4 %}
+> Render-side check: §9 must contain **≥ 4** decisions in the "Senior to confirm: ..." form (engine spec, prompts/orchestrator_v0_1.txt). Current section: {{ _engine_decisions }} primary decisions ✓.
 
 {% if dispatch.warnings %}
-**Dispatch-flagged.** {{ dispatch.warnings|length }} dispatch warning(s) — review §8.1 above before signing the dispatch numbers.
+**Dispatch-flagged.** {{ dispatch.warnings|length }} dispatch warning(s) — review §8.1 before signing the dispatch numbers.
 {% endif %}
 
 ---

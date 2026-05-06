@@ -98,14 +98,13 @@ def _cached_pathway(
     *,
     ets: float = 0.0,
     grant: float = 0.0,
+    rule: str = "max_npv",
 ) -> dict:
-    """Cache one pathway result per (site_id, ets, grant) across the test
-    module — each optimiser run is ~10–20 s, so naive per-test re-runs
-    balloon the suite. Pytest fixture scoping conflicts with the
-    function-scoped golden-site fixtures, so the cache lives in this
-    module rather than using `scope='module'`."""
+    """Cache one pathway result per (site_id, ets, grant, rule) across
+    the test module — each optimiser run is ~10–20 s, so naive
+    per-test re-runs balloon the suite."""
     site_id = site.get("site_id", "unknown")
-    key = (site_id, round(ets, 3), round(grant, 3))
+    key = (site_id, round(ets, 3), round(grant, 3), rule)
     if key not in _PATHWAY_CACHE:
         ep = parse_energy_profile(site_brief=site)
         sc = screen_technologies(site_brief=site, energy_profile=ep)
@@ -113,6 +112,7 @@ def _cached_pathway(
             site_brief=site, screening=sc, energy_profile=ep,
             ets_allowance_price_gbp_per_tco2e=ets,
             ietf_grant_fraction=grant,
+            pathway_selection_rule=rule,
         )
     return _PATHWAY_CACHE[key]
 
@@ -184,9 +184,14 @@ class TestDairyPathway:
         (≥£100k). This guards the engineering target rather than the
         v0 partial-implementation artefact."""
         npv = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
-        assert npv >= 100_000, (
+        # Threshold lowered from £100k → £50k after issue D removed the
+        # unjustified TES (TES without EB) from Balanced. The TES had
+        # been overstating the overlay-scenario NPV by capturing 30%
+        # grant on £320k of capex it could not earn back via TOU
+        # arbitrage. Honest Balanced-with-overlay NPV is ~£80k.
+        assert npv >= 50_000, (
             f"Balanced NPV with £75 carbon + 30% grant: £{npv:,.0f} — "
-            "expected ≥ £100k. Carbon-pricing / grant overlay is supposed "
+            "expected ≥ £50k. Carbon-pricing / grant overlay is supposed "
             "to recover the engineering target NPV from the v0-default "
             "negative band."
         )
@@ -198,9 +203,13 @@ class TestDairyPathway:
         npv_default = dairy_pathway["pathways"]["balanced"]["npv_gbp"]
         npv_overlay = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
         delta = npv_overlay - npv_default
-        assert delta >= 500_000, (
+        # Threshold lowered from £500k → £300k after issue D removed
+        # the unjustified TES (TES without EB) from Balanced — the
+        # 30% grant component on £320k TES capex was inflating the
+        # overlay scenario relative to the default by ~£100k.
+        assert delta >= 300_000, (
             f"NPV recovery with carbon + grant only £{delta:,.0f} — "
-            "expected ≥ £500k uplift"
+            "expected ≥ £300k uplift"
         )
 
     def test_balanced_simple_payback_unset_or_long_default(self, dairy_pathway):
@@ -431,6 +440,132 @@ class TestDairyPathway:
         if bal["year_15_reduction_pct"] < cons["year_15_reduction_pct"] - 1e-6:
             codes = {w.get("code") for w in dairy_pathway["warnings"]}
             assert "balanced_underperforms_conservative_under_v0_defaults" in codes
+
+    def test_max_reduction_positive_npv_rule(self, dairy_5mw):
+        """Issue F (iter-2): under `max_reduction_positive_npv` Balanced
+        is the highest year-15-reduction pathway whose NPV is positive.
+        Validates that the rule (a) returns a positive-NPV Balanced and
+        (b) Balanced.reduction >= every other NPV-positive candidate's
+        reduction, and (c) the legacy
+        `balanced_underperforms_conservative_under_v0_defaults`
+        advisory is suppressed when this rule is active."""
+        pw = _cached_pathway(dairy_5mw, ets=75.0, grant=0.30,
+                             rule="max_reduction_positive_npv")
+        bal = pw["pathways"]["balanced"]
+        assert bal["npv_gbp"] > 0, (
+            f"Balanced NPV under max_reduction_positive_npv must stay "
+            f"positive, got £{bal['npv_gbp']:,.0f}"
+        )
+        # Must dominate Conservative on year-15 reduction (the
+        # inversion the iter-2 reviewer flagged).
+        cons = pw["pathways"]["conservative"]
+        assert bal["year_15_reduction_pct"] >= cons["year_15_reduction_pct"] - 1e-6, (
+            f"Balanced reduction {bal['year_15_reduction_pct']}% must "
+            f"meet or exceed Conservative {cons['year_15_reduction_pct']}% "
+            "under max_reduction_positive_npv"
+        )
+        codes = {w.get("code") for w in pw["warnings"]}
+        assert "balanced_underperforms_conservative_under_v0_defaults" not in codes, (
+            "Inversion advisory must be suppressed under "
+            "max_reduction_positive_npv (the rule structurally prevents "
+            "the inversion)."
+        )
+
+    def test_unknown_pathway_selection_rule_raises(self, dairy_5mw):
+        """Defensive: unknown rule must raise rather than silently fall
+        back to a default."""
+        ep = parse_energy_profile(site_brief=dairy_5mw)
+        sc = screen_technologies(site_brief=dairy_5mw, energy_profile=ep)
+        with pytest.raises(ValueError, match="pathway_selection_rule"):
+            optimise_investment_pathway(
+                site_brief=dairy_5mw, screening=sc, energy_profile=ep,
+                pathway_selection_rule="not_a_real_rule",
+            )
+
+    def test_no_tes_without_eb_in_same_stack(self, dairy_pathway):
+        """Issue D: TES economics depend on the EB's TOU arbitrage
+        envelope. A pathway that includes TES without an EB in the
+        same stack overstates TES NPV (the only remaining TES value
+        is HP demand-shifting, which is small and does not justify
+        £40/kWh capex). The optimiser must not return such a pathway
+        as a named anchor."""
+        for pname, pw in dairy_pathway["pathways"].items():
+            kinds = {a.get("tech_kind") for a in pw.get("actions") or []}
+            if "thermal_storage" in kinds:
+                assert "electrode_boiler" in kinds, (
+                    f"Pathway {pname!r} carries thermal_storage without an "
+                    "electrode_boiler in the same stack — TES NPV is "
+                    "unjustified by HP-only charge/discharge value (issue D)."
+                )
+
+    def test_annual_opex_matches_active_capex_fractions(self, dairy_pathway):
+        """Issue E: annual O&M must equal the sum over installed
+        actions of (capex_gross × om_fraction). Earlier the reported
+        figure was opex_per_year[0], which understates pathways that
+        defer their largest install to year 1+ (Balanced: HP at
+        calendar 2027 → £3k reported vs £26k true). The fix reports
+        the steady-state O&M of the full installed stack."""
+        for pname, pw in dairy_pathway["pathways"].items():
+            expected = 0.0
+            for a in pw.get("actions") or []:
+                cfg = a.get("config", {}) or {}
+                tk = a.get("tech_kind", "")
+                cx = float(a.get("capex_gbp", 0.0))
+                # Mirror engine's _OPEX_FRACTION_OF_CAPEX (vendor service-
+                # contract benchmarks, 2024 UK industrial).
+                om = {
+                    "heat_pump_mid_temp": 0.025,
+                    "heat_pump_high_temp": 0.030,
+                    "electrode_boiler": 0.015,
+                    "thermal_storage": 0.010,
+                    "waste_heat_recovery": 0.020,
+                }.get(tk, 0.0)
+                expected += cx * om
+            reported = float(pw.get("annual_opex_year1_gbp", 0.0))
+            assert reported >= expected - 1.0, (
+                f"Pathway {pname!r} O&M £{reported:,.0f} understates "
+                f"sum(active capex × om_fraction) = £{expected:,.0f}"
+            )
+
+    def test_no_pathway_carries_a_temperature_inactive_tech(self, dairy_pathway):
+        """Issue B: every action in every named pathway must declare a
+        non-empty `serves_end_uses` list whose entries are still
+        deliverable after the dispatch's temperature gate. Concretely:
+        the dud chiller-WHR (sink 70°C) that the dispatch silently
+        deactivates for 85°C dairy hot water must not carry £150k of
+        orphan capex into a recommended pathway. After the screen-side
+        gate (issue B), WHR is excluded for dairy and no pathway action
+        should reference it."""
+        process_heat = dairy_pathway.get("_site_process_heat", {}) or {}
+        # Dairy hot-water supply temp from fixture
+        hw_supply = 85.0
+        steam_supply = 175.0
+        LMTD = 5.0
+        for pname, pw in dairy_pathway["pathways"].items():
+            for a in pw.get("actions") or []:
+                cfg = a.get("config", {}) or {}
+                serves = cfg.get("serves_end_uses", []) or []
+                assert serves, (
+                    f"Pathway {pname!r} action {a.get('tech_id')} has empty "
+                    "serves_end_uses — orphan capex"
+                )
+                if a.get("tech_kind") in (
+                    "heat_pump_mid_temp",
+                    "heat_pump_high_temp",
+                    "waste_heat_recovery",
+                ):
+                    sink = float(cfg.get("sink_temp_c") or 0.0)
+                    deliverable = []
+                    if "hot_water" in serves and sink + 1e-6 >= hw_supply + LMTD:
+                        deliverable.append("hot_water")
+                    if "steam" in serves and sink + 1e-6 >= steam_supply + LMTD:
+                        deliverable.append("steam")
+                    assert deliverable, (
+                        f"Pathway {pname!r} action {a.get('tech_id')} "
+                        f"(sink {sink:.0f}°C) cannot deliver any of its "
+                        f"declared serves_end_uses {serves} given the dispatch "
+                        f"5 K LMTD margin (hw 85°C, steam 175°C). Issue B."
+                    )
 
     def test_high_temp_hp_candidate_present_when_actionable(self, dairy_pathway):
         """Reviewer iter-1 issue #3: when industrial_heat_pump_high_temp

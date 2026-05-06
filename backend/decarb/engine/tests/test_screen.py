@@ -119,12 +119,26 @@ class TestDairyScreen:
             "excluded_pending_grid_decision"
         )
 
-    def test_dairy_shortlist_includes_whr_chiller(self, dairy_result, dairy_5mw):
-        """WHR from existing NH3 chiller (2.5 MW) to hot water must be shortlisted."""
-        must_include = dairy_5mw["_golden_truth"]["expected_shortlist_must_include"]
-        assert "waste_heat_recovery_chiller_to_HW" in must_include
-        assert "waste_heat_recovery_chiller_to_HW" in _shortlist_ids(dairy_result), (
-            "waste_heat_recovery_chiller_to_HW missing from dairy shortlist"
+    def test_dairy_excludes_whr_chiller_on_temperature_gate(
+        self, dairy_result, dairy_5mw
+    ):
+        """Issue B: chiller-condensate WHR deliverable sink ~70°C cannot
+        serve dairy hot water at 85°C with the 5 K LMTD margin
+        (CIBSE AM17, BS EN 14825). simulate_site_dispatch enforces the
+        same gate; screen now agrees, so the dud WHR no longer carries
+        £150k of orphan capex into every pathway."""
+        sids = _shortlist_ids(dairy_result)
+        assert "waste_heat_recovery_chiller_to_HW" not in sids, (
+            "WHR (chiller→HW) must be excluded from dairy shortlist on "
+            "thermodynamic grounds — sink 70°C < hw_supply 85°C + 5 K LMTD"
+        )
+        excluded = {
+            e["tech_id"]: e for e in dairy_result.get("excluded", [])
+        }
+        assert "waste_heat_recovery_chiller_to_HW" in excluded
+        e = excluded["waste_heat_recovery_chiller_to_HW"]
+        assert e.get("failed_axis") == "thermodynamic_feasibility", (
+            f"WHR exclusion axis: got {e.get('failed_axis')}"
         )
 
     def test_dairy_shortlist_includes_tes(self, dairy_result, dairy_5mw):
