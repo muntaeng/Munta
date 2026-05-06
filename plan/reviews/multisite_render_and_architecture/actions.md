@@ -15,3 +15,11 @@ Roles: `builder`, `reviewer`, `meta`.
 [2026-05-06T18:27][builder][iter1] plan/architecture.md: removed Frontend stack row (line 91); replaced MUNTec reuse table + paragraph (lines 112-123) with brief's verbatim clean-slate note.
 [2026-05-06T18:30][builder][iter1] Engine pytest 282 passed, 1 skipped (excluding corpus retrieval suite — DB-dependent infra, was failing pre-round). No regression.
 [2026-05-06T18:30][builder][iter1] Logged 3 dairy-text leaks (GOLDEN_BREWERY/SOFTDRINKS lines 301,411,449,490 / 292,395,433,474) as Open Questions for Reviewer per brief — out of scope to fix this round.
+[2026-05-06T19:35][reviewer][iter1] Re-ran engine pytest with same exclusion set: 282 passed, 1 skipped, 1 warning in 164.24s — matches Builder report; no regression.
+[2026-05-06T19:36][reviewer][iter1] Independently re-derived implied baseline boiler efficiency: dairy=0.9210526, brewery=0.8548387, soft_drinks=0.85 — matches brief's stated values.
+[2026-05-06T19:37][reviewer][iter1] Verified §10 Overall: PASSED on both new reports (brewery err=0/warn=0/info=1; soft-drinks err=0/warn=1/info=1) — AC1 PASS.
+[2026-05-06T19:38][reviewer][iter1] grep ^## §|^## Appendix returns 12 H2s on each new report — AC2 PASS.
+[2026-05-06T19:39][reviewer][iter1] architecture.md: confirmed Frontend stack row removed; MUNTec replacement note string-equal to brief verbatim — AC3 PASS.
+[2026-05-06T19:40][reviewer][iter1] Cross-section status-consistency check on both new reports: zero contradictions between IMPLEMENTED v0 badges and prose elsewhere claiming deferred.
+[2026-05-06T19:41][reviewer][iter1] Adjudicated all 3 Builder open questions ACCEPT as out-of-scope per brief.
+[2026-05-06T19:42][reviewer][iter1] Verdict CLEAN — no iter-2 needed.
