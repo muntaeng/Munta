@@ -194,6 +194,30 @@ Method context (every number traces to a deterministic engine call):
 
 ### §4.1 Three named pathways
 
+{% set _no_reinf = pathway.pathways_no_reinforcement or {} %}
+{% set _no_reinf_envelope = pathway.no_reinforcement_envelope_kw|default(0)|int %}
+
+#### §4.1a — Pathways without DNO reinforcement
+*(Deliverable in 6–9 months from notice-to-proceed. Constrained to the site's declared no-reinforcement electrical envelope: **{{ _no_reinf_envelope }} kW** = 1.0× site_grid_headroom_mva.)*
+
+{% if _no_reinf.get('infeasible_reason') %}
+> **Infeasible without reinforcement.** {{ _no_reinf.infeasible_reason }} The §4.1b track below presumes DNO reinforcement is obtained; a senior reviewer should commission a G99 connection feasibility study before final investment commitment.
+{% else %}
+| Pathway | Capex | NPV | Year-15 reduction | Simple payback | Discounted payback |
+|---|---:|---:|---:|---:|---:|
+{% for name in ['conservative', 'balanced', 'aggressive'] %}
+{% set pw = _no_reinf.get(name) %}
+{% if pw %}
+| **{{ name|capitalize }}** | £{{ pw.capex_total_gbp|fmt_int }} | £{{ pw.npv_gbp|fmt_int }} | {{ pw.year_15_reduction_pct }}% | {% if pw.simple_payback_years is not none %}{{ pw.simple_payback_years }} yr{% else %}—{% endif %} | {% if pw.discounted_payback_years is not none %}{{ pw.discounted_payback_years }} yr{% else %}—{% endif %} |
+{% endif %}
+{% endfor %}
+
+These pathways respect the §3.3 grid-headroom verdict — total stack electrical demand (HP draw at typical COP + EB nameplate) ≤ 1.0× site headroom, no action carries a `requires_grid_decision` flag. Reduction figures are correspondingly more modest than the §4.1b track because high-temperature HP and electrode-boiler capacity are excluded.
+{% endif %}
+
+#### §4.1b — Pathways with DNO reinforcement
+*(Deliverable in 18–30 months from notice-to-proceed. Capex includes a £50,000–£500,000 DNO reinforcement range as a separate line item where required; the optimiser does not model it explicitly. These pathways carry a `requires_grid_decision` flag where the action stack exceeds the no-reinforcement envelope.)*
+
 {% set rat_ns = namespace(bal_hp_kw=None, bal_hp_id=None, cons_hp_kw=None, cons_hp_id=None, agg_hp_kw=None, agg_hp_id=None) %}
 {% set _bal_pw = pathway.pathways.get('balanced') %}
 {% set _cons_pw = pathway.pathways.get('conservative') %}

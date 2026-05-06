@@ -837,3 +837,77 @@ class TestDiscountedPaybackInvariants:
             f"y0-zero cashflow returned payback {result}; must not "
             f"short-circuit to 0.0 when prev=cumulative=0."
         )
+
+
+# ---------------------------------------------------------------------------
+# Screen ↔ Pathway grid-headroom consistency
+# (Phase 3 of assessment_2026_05_06_fixes — D2)
+# ---------------------------------------------------------------------------
+
+
+class TestScreenPathwayGridConsistency:
+    """When the screen routes a tech to "pending senior grid decision"
+    (utilisation > 1.5× declared headroom), the optimiser must not
+    silently include it in a recommended pathway. The fix exposes a
+    second pathway triple — `pathways_no_reinforcement` — built from
+    the subset of evaluated candidates whose total stack electrical
+    demand stays within 1.0× headroom AND carry no requires_grid_decision
+    flag. The reader sees both tracks (without / with reinforcement).
+    """
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_field_always_exposed(self, request, site_fixture):
+        """Result dict must always carry `pathways_no_reinforcement`.
+        Either with three named pathways, or with `infeasible_reason`."""
+        site = request.getfixturevalue(site_fixture)
+        result = _cached_pathway(site, ets=75.0, grant=0.30)
+        assert "pathways_no_reinforcement" in result
+        nr = result["pathways_no_reinforcement"]
+        # Either three named pathways or an infeasible_reason — never empty.
+        if "infeasible_reason" in nr:
+            assert isinstance(nr["infeasible_reason"], str) and nr["infeasible_reason"]
+        else:
+            assert {"conservative", "balanced", "aggressive"}.issubset(nr.keys())
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_pathways_carry_no_grid_decision_flag(
+        self, request, site_fixture
+    ):
+        """Every action in a no_reinforcement-track pathway must have
+        `requires_grid_decision=False`. If the screen routed a tech to
+        pending-grid, it must NOT appear in the no-reinforcement track."""
+        site = request.getfixturevalue(site_fixture)
+        nr = _cached_pathway(site, ets=75.0, grant=0.30)["pathways_no_reinforcement"]
+        if "infeasible_reason" in nr:
+            return  # pool was empty for this site — vacuously consistent
+        for name in ("conservative", "balanced", "aggressive"):
+            pw = nr.get(name)
+            if pw is None:
+                continue
+            for a in pw.get("actions", []):
+                assert not a.get("requires_grid_decision", False), (
+                    f"{site_fixture}/no-reinforcement/{name} carries action "
+                    f"{a.get('tech_id')} with requires_grid_decision=True — "
+                    f"contradicts the §3.3 pending-grid screening verdict."
+                )
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_envelope_exposed_in_kw(self, request, site_fixture):
+        """The 1.0× envelope (kW) is exposed at the top level so the
+        renderer can quote it in §4.1a without re-deriving."""
+        site = request.getfixturevalue(site_fixture)
+        result = _cached_pathway(site, ets=75.0, grant=0.30)
+        assert "no_reinforcement_envelope_kw" in result
+        env = result["no_reinforcement_envelope_kw"]
+        # Envelope is the site's declared MVA × 1000. Tolerate 0 if the
+        # site declares no headroom (treats every electrified path as
+        # needing reinforcement).
+        assert isinstance(env, (int, float)) and env >= 0
+
+    def test_with_reinforcement_track_unchanged(self, dairy_pathway_with_carbon_and_grant):
+        """The historical `pathways` field is preserved as the
+        with-reinforcement set (backwards compat)."""
+        result = dairy_pathway_with_carbon_and_grant
+        assert result["pathways"] is result["pathways_with_reinforcement"], (
+            "`pathways` must alias `pathways_with_reinforcement` for backwards compat."
+        )

@@ -132,6 +132,32 @@ def _annual_opex_for_action(a: _Action) -> float:
     return _OPEX_FRACTION_OF_CAPEX.get(a.tech_kind, 0.0) * _capex_for_action(a)
 
 
+# Typical industrial mid-temp HP COP for grid-headroom screening. Real
+# dispatch uses CoolProp at the actual source/sink, but the screening
+# question — "does this stack fit in the available DNO connection?" —
+# only needs a representative steady-state factor.
+_TYPICAL_HP_COP_FOR_GRID_SCREEN = 3.0
+
+
+def _total_stack_electrical_demand_kw(actions: list[dict[str, Any]]) -> float:
+    """Approximate steady-state electrical demand (kW) of a fully-installed
+    pathway stack — used only for the no-reinforcement / with-reinforcement
+    grid-headroom partition (Phase 3 of assessment_2026_05_06_fixes).
+
+    HP draw is thermal_kw / typical COP. EB nameplate ≈ thermal_kw (≥99%
+    efficient). TES and WHR contribute no incremental DNO draw.
+    """
+    elec = 0.0
+    for a in actions:
+        kind = a.get("tech_kind", "")
+        cap = float(a.get("capacity", 0.0))
+        if "heat_pump" in kind:
+            elec += cap / _TYPICAL_HP_COP_FOR_GRID_SCREEN
+        elif kind == "electrode_boiler":
+            elec += cap
+    return elec
+
+
 def _stack_at_year(
     actions: Iterable[_Action],
     year_idx: int,
@@ -948,78 +974,105 @@ def optimise_investment_pathway(
     #                  Balanced economics". Δ = max(£500k, 25% × |best NPV|).
     #   Aggressive   = max year-15 reduction subject to capex ≤ budget.
     #                  The all-out carbon-leader, no NPV constraint.
-    pathways: dict[str, Any] = {}
-    if evaluated:
-        # Balanced selection rule. v0 default is `max_npv` (the "best
-        # value" pick). `max_reduction_positive_npv` (Reviewer iter-2,
-        # issue F) selects the highest year-15 reduction among
-        # candidates whose NPV remains positive — i.e. the pathway
-        # that buys the most carbon without going under water.
+    def _select_named_triple(pool: list[dict[str, Any]]) -> dict[str, Any]:
+        """Pick Conservative/Balanced/Aggressive from an evaluated pool
+        using the active selection rules. Returns {} if pool is empty.
+        Extracted from inline so the no-reinforcement and
+        with-reinforcement pools can be selected independently
+        (Phase 3 of assessment_2026_05_06_fixes)."""
+        if not pool:
+            return {}
         if pathway_selection_rule == "max_reduction_positive_npv":
-            positive_npv = [e for e in evaluated if e["npv_gbp"] > 0]
+            positive_npv = [e for e in pool if e["npv_gbp"] > 0]
             if positive_npv:
-                balanced = max(
+                bal = max(
                     positive_npv,
-                    key=lambda e: (
-                        e["year_15_reduction_pct"], e["npv_gbp"],
-                    ),
+                    key=lambda e: (e["year_15_reduction_pct"], e["npv_gbp"]),
                 )
             else:
-                # No NPV-positive pathway exists under the current
-                # tariffs / overlay; fall back to max-NPV so the
-                # selection rule is total. The `carbon_price_and_grant
-                # _excluded` warning will already be advising the
-                # senior reader to apply the overlay.
-                balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+                bal = max(pool, key=lambda e: e["npv_gbp"])
         elif pathway_selection_rule == "max_npv":
-            balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+            bal = max(pool, key=lambda e: e["npv_gbp"])
         else:
             raise ValueError(
                 f"Unknown pathway_selection_rule {pathway_selection_rule!r} — "
                 "expected one of: max_npv, max_reduction_positive_npv"
             )
-        best_npv = balanced["npv_gbp"]
-        delta = max(500_000.0, 0.25 * abs(best_npv))
-
-        small_capex_cap = 0.25 * capex_budget
-        cons_pool = [
-            e for e in evaluated
-            if e["capex_total_gbp"] <= small_capex_cap
-            and e["npv_gbp"] >= best_npv - delta
+        bn = bal["npv_gbp"]
+        d = max(500_000.0, 0.25 * abs(bn))
+        small = 0.25 * capex_budget
+        cp = [
+            e for e in pool
+            if e["capex_total_gbp"] <= small
+            and e["npv_gbp"] >= bn - d
             and e["year_15_reduction_pct"] > 0
         ]
-        # Fallbacks if no candidate satisfies both constraints:
-        # 1. Relax the small-capex cap to 50% of budget
-        # 2. Relax further to "any pathway with positive reduction and
-        #    NPV-near-best", picking smallest capex
-        # 3. Last resort: smallest-capex pathway with positive reduction
-        if not cons_pool:
-            cons_pool = [
-                e for e in evaluated
+        if not cp:
+            cp = [
+                e for e in pool
                 if e["capex_total_gbp"] <= 0.5 * capex_budget
-                and e["npv_gbp"] >= best_npv - delta
+                and e["npv_gbp"] >= bn - d
                 and e["year_15_reduction_pct"] > 0
             ]
-        if not cons_pool:
-            cons_pool = [
-                e for e in evaluated
+        if not cp:
+            cp = [
+                e for e in pool
                 if e["year_15_reduction_pct"] > 0
-                and e["npv_gbp"] >= best_npv - delta
+                and e["npv_gbp"] >= bn - d
             ]
-        if not cons_pool:
-            cons_pool = [e for e in evaluated if e["year_15_reduction_pct"] > 0]
-        if not cons_pool:
-            cons_pool = evaluated
-        conservative = max(
-            cons_pool,
-            key=lambda e: (e["year_15_reduction_pct"], -e["capex_total_gbp"]),
-        )
-        pathways["conservative"] = {**conservative, "name": "conservative"}
-        pathways["balanced"] = {**balanced, "name": "balanced"}
+        if not cp:
+            cp = [e for e in pool if e["year_15_reduction_pct"] > 0]
+        if not cp:
+            cp = pool
+        cons = max(cp, key=lambda e: (e["year_15_reduction_pct"], -e["capex_total_gbp"]))
+        agg = max(pool, key=lambda e: e["year_15_reduction_pct"])
+        return {
+            "conservative": {**cons, "name": "conservative"},
+            "balanced": {**bal, "name": "balanced"},
+            "aggressive": {**agg, "name": "aggressive"},
+        }
 
-        aggressive = max(evaluated, key=lambda e: e["year_15_reduction_pct"])
-        pathways["aggressive"] = {**aggressive, "name": "aggressive"}
-    else:
+    # Partition the evaluated pool into the no-reinforcement subset
+    # (stack electrical demand ≤ 1.0 × declared headroom AND no
+    # action carries requires_grid_decision). The with-reinforcement
+    # pool is the full evaluated set — same as before this round.
+    headroom_kw_no_reinforcement = (
+        float(constraints.get("site_grid_headroom_mva", 0.0)) * 1000.0
+    )
+
+    def _is_no_reinforcement_compatible(rec: dict[str, Any]) -> bool:
+        if any(a.get("requires_grid_decision") for a in rec.get("actions", [])):
+            return False
+        elec_kw = _total_stack_electrical_demand_kw(rec.get("actions", []))
+        if headroom_kw_no_reinforcement <= 0.0:
+            # No declared headroom — every electrified pathway needs a
+            # connection conversation. Treat as infeasible without
+            # reinforcement.
+            return elec_kw == 0.0
+        return elec_kw <= headroom_kw_no_reinforcement
+
+    no_reinforcement_pool = [
+        e for e in evaluated if _is_no_reinforcement_compatible(e)
+    ]
+
+    pathways: dict[str, Any] = _select_named_triple(evaluated)
+    pathways_no_reinforcement: dict[str, Any] = (
+        _select_named_triple(no_reinforcement_pool)
+        if no_reinforcement_pool
+        else {
+            "infeasible_reason": (
+                "No candidate pathway delivers measurable carbon "
+                f"reduction within the site's declared no-reinforcement "
+                f"electrical envelope ({headroom_kw_no_reinforcement:.0f} "
+                "kW = 1.0× site_grid_headroom_mva). Every named pathway "
+                "in §4.1b therefore presumes DNO reinforcement; obtain "
+                "an indicative G99 connection offer before final "
+                "investment commitment."
+            ),
+        }
+    )
+
+    if not evaluated:
         warnings_out.append({
             "severity": "high",
             "code": "no_evaluated_pathways",
@@ -1265,7 +1318,10 @@ def optimise_investment_pathway(
         "ietf_grant_fraction": grant_frac,
         "candidate_count": len(candidates),
         "evaluated_count": len(evaluated),
-        "pathways": pathways,
+        "pathways": pathways,                            # historical alias = with-reinforcement set
+        "pathways_with_reinforcement": pathways,
+        "pathways_no_reinforcement": pathways_no_reinforcement,
+        "no_reinforcement_envelope_kw": headroom_kw_no_reinforcement,
         "pareto_frontier": pareto_capex,                  # legacy alias = capex frontier
         "pareto_frontier_capex_vs_carbon": pareto_capex,
         "pareto_frontier_npv_vs_carbon": pareto_npv,

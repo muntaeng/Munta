@@ -34,6 +34,7 @@ import pytest
 from decarb.engine.carbon import compute_baseline_carbon
 from decarb.engine.dispatch import simulate_site_dispatch
 from decarb.engine.parse import parse_energy_profile
+from decarb.engine.pathway import optimise_investment_pathway
 from decarb.engine.screen import screen_technologies
 from decarb.engine.tests.test_dispatch import _make_stack
 from decarb.render import render_report
@@ -398,3 +399,98 @@ class TestStructureAllSites:
         assert "Undefined" not in md
         assert "{{" not in md and "}}" not in md
         assert "{%" not in md and "%}" not in md
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 of assessment_2026_05_06_fixes — render-side grid-headroom
+# consistency. The §4.1a / §4.1b split must be present, and any
+# "requires DNO reinforcement" badge must appear only inside §4.1b.
+# ---------------------------------------------------------------------------
+
+
+class TestRenderGridHeadroomConsistency:
+    """End-to-end render with the pathway optimiser wired in. The Balanced
+    selection rule and ETS / IETF overlay match the regenerate-dairy-report
+    script so this test exercises the same render path the GOLDEN reports
+    use."""
+
+    @pytest.fixture
+    def dairy_with_pathway(self, dairy_5mw):
+        parsed = parse_energy_profile(site_brief=dairy_5mw)
+        carbon = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            site_secr_reportable=dairy_5mw.get("regulatory", {}).get("secr_reportable", True),
+            site_in_uk_ets=dairy_5mw.get("regulatory", {}).get("in_uk_ets", False),
+            cca_subsector=dairy_5mw.get("regulatory", {}).get("cca_subsector"),
+            cbam_exposed=dairy_5mw.get("regulatory", {}).get("cbam_exposed", False),
+        )
+        screen = screen_technologies(site_brief=dairy_5mw, energy_profile=parsed)
+        dispatch = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        pathway = optimise_investment_pathway(
+            site_brief=dairy_5mw,
+            energy_profile=parsed,
+            screening=screen,
+            base_year=2026,
+            ets_allowance_price_gbp_per_tco2e=75.0,
+            ietf_grant_fraction=0.30,
+            pathway_selection_rule="max_reduction_positive_npv",
+        )
+        return {
+            "site_brief": dairy_5mw,
+            "parse_result": parsed,
+            "carbon_result": carbon,
+            "screen_result": screen,
+            "dispatch_result": dispatch,
+            "pathway_result": pathway,
+        }
+
+    def test_section_41a_header_present(self, dairy_with_pathway):
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        assert "§4.1a — Pathways without DNO reinforcement" in md, (
+            "§4.1a subheader missing — Phase 3 dual-track render not in place."
+        )
+
+    def test_section_41b_header_present(self, dairy_with_pathway):
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        assert "§4.1b — Pathways with DNO reinforcement" in md, (
+            "§4.1b subheader missing — Phase 3 dual-track render not in place."
+        )
+
+    def test_no_orphan_reinforcement_warnings(self, dairy_with_pathway):
+        """Every '⚠️ requires DNO reinforcement decision' marker in the
+        rendered output must appear AFTER the §4.1b header. Markers
+        elsewhere — in §1, §3.3, §4.1a, the appendices — would be
+        orphaned and contradict §3.3 / §4.1a."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        marker = "⚠️ requires DNO reinforcement decision"
+        b_header = "§4.1b — Pathways with DNO reinforcement"
+        b_idx = md.find(b_header)
+        assert b_idx > 0, "§4.1b header not found — cannot validate marker placement"
+        # Scan for any occurrence of the marker before §4.1b — that's an orphan.
+        prefix = md[:b_idx]
+        assert marker not in prefix, (
+            f"Orphan '{marker}' found before §4.1b header. "
+            "Reinforcement warnings must only appear inside §4.1b."
+        )
+
+    def test_no_reinforcement_envelope_quoted_in_section_41a(self, dairy_with_pathway):
+        """§4.1a must quote the no-reinforcement envelope (kW) so the
+        senior reader knows the constraint envelope explicitly."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        env = int(dairy_with_pathway["pathway_result"]["no_reinforcement_envelope_kw"])
+        # Find §4.1a section
+        a_idx = md.find("§4.1a — Pathways without DNO reinforcement")
+        b_idx = md.find("§4.1b — Pathways with DNO reinforcement")
+        assert 0 < a_idx < b_idx
+        section_a = md[a_idx:b_idx]
+        # Envelope appears as int kW, e.g. "1000 kW" for dairy.
+        assert f"{env} kW" in section_a or f"{env:,} kW" in section_a, (
+            f"Envelope ({env} kW) not quoted in §4.1a. Senior reader "
+            "needs the explicit constraint number to evaluate the track."
+        )
