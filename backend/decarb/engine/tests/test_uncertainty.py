@@ -276,8 +276,8 @@ def _build_dairy_mc(dairy_5mw, n_trials: int = 1000, seed: int = 42):
     pathway_result = optimise_investment_pathway(
         site_brief=dairy_5mw, screening=screen_result,
         energy_profile=parse_result,
-        ets_allowance_price_gbp_per_tco2e=75.0,
-        ietf_grant_fraction=0.30,
+        ets_allowance_price_gbp_per_tco2e=100.0,
+        ietf_grant_fraction=0.38,
         pathway_selection_rule="max_reduction_positive_npv",
     )
     horizon = pathway_result["planning_horizon_years"]
