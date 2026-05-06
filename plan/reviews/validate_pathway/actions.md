@@ -22,3 +22,9 @@ Roles: `builder`, `reviewer`, `meta`.
 [2026-05-06T18:17][builder][iter2] pytest decarb/tests/test_tools_render_gate.py -v → 3 passed in 0.69s.
 [2026-05-06T18:20][builder][iter2] pytest decarb -q --ignore=decarb/corpus → 5 failed, 282 passed, 1 skipped (5 failures = pre-existing OPENAI_API_KEY-gated retrieval tests, identical to iter-1 review). Net +3 passing engine tests.
 [2026-05-06T18:22][builder][iter2] Wrote iter_2_build.md with placeholder commit SHA. Staging only the new test file + iter file + this actions update; committing.
+[2026-05-06T18:35][reviewer][iter2] Re-ran pytest decarb -q --ignore=decarb/corpus: 5 failed, 282 passed, 1 skipped — matches Builder; +3 vs iter-1 baseline; failure list unchanged (5 retrieval, OPENAI_API_KEY pre-existing).
+[2026-05-06T18:36][reviewer][iter2] Re-ran pytest decarb/tests/test_tools_render_gate.py -v: 3 passed in 0.68s.
+[2026-05-06T18:37][reviewer][iter2] Read tools.py:489–510 gate code; confirmed test assertions match exactly (failed-prefix, missing-prefix, severity=="error" filter that excludes the warning-severity check_id from the surfaced list).
+[2026-05-06T18:38][reviewer][iter2] git show f09fd45 --stat: only test_tools_render_gate.py + iter docs changed; iter-1 PASS verdicts on C1/C2/C3/C4/C6/C8/C9 carry forward. C5 now PASS. C7 PASS (282).
+[2026-05-06T18:39][reviewer][iter2] Re-derived grep "ROADMAP v0.2" methodology.md = 5 (unchanged). Cross-section status sweep unchanged from iter-1 (no source files modified).
+[2026-05-06T18:40][reviewer][iter2] Verdict CLEAN. Wrote iter_2_review.md, committing.
