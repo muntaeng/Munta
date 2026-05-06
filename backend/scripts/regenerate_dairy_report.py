@@ -115,8 +115,11 @@ def main() -> None:
 
     # Gas-only baseline arrays for the Monte Carlo closed-form pathway
     # re-evaluation. Same accounting conventions as the optimiser's own
-    # baseline (TOU tariffs, 0.85 boiler eff) so uncertainty stays
-    # apples-to-apples with the deterministic pathway.
+    # baseline so uncertainty stays apples-to-apples with the
+    # deterministic pathway. Boiler efficiency is implied from the
+    # site's declared natural-gas meter and parsed process-heat demand
+    # (matching the pathway's own baseline reconciliation introduced in
+    # the assessment_2026_05_06_fixes Phase 5b round).
     horizon = pathway_result["planning_horizon_years"]
     base_year = pathway_result["base_year"]
     gas_backup_kw = 0.0
@@ -124,6 +127,8 @@ def main() -> None:
         if "gas" in str(b.get("type", "")).lower():
             gas_backup_kw += float(b.get("capacity_mw", 0.0)) * 1000.0
     gas_backup_kw = max(gas_backup_kw, 10_000.0)
+    from decarb.engine.pathway import _implied_baseline_boiler_efficiency
+    baseline_eff = _implied_baseline_boiler_efficiency(parse_result, default=0.85)
     baseline_cost: list[float] = []
     baseline_carbon: list[float] = []
     for y in range(horizon):
@@ -133,7 +138,7 @@ def main() -> None:
                 "type": "gas_boiler",
                 "id": "baseline_gas_only",
                 "capacity_kw": gas_backup_kw,
-                "efficiency": 0.85,
+                "efficiency": baseline_eff,
                 "serves_end_uses": ["steam", "hot_water"],
             }],
             market_signals=DEFAULT_MARKET_SIGNALS,

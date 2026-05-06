@@ -158,11 +158,47 @@ def _total_stack_electrical_demand_kw(actions: list[dict[str, Any]]) -> float:
     return elec
 
 
+def _implied_baseline_boiler_efficiency(
+    energy_profile: dict[str, Any], default: float = 0.85
+) -> float:
+    """Boiler efficiency back-calculated from the site's declared annual
+    natural-gas consumption and parsed process-heat demand. Anchors on
+    the meter (the authoritative real-world quantity) so dispatch's
+    baseline gas_consumed_kwh reconciles with `compute_baseline_carbon`'s
+    Scope 1 number, which is computed from the same meter. A fixture
+    where declared gas × 0.85 ≠ process_heat introduced a ~6.6% baseline
+    inconsistency (validate_pathway's exec_summary_baseline_consistency
+    check). Clamped to [0.75, 0.98] — outside that band the inputs are
+    so inconsistent that v0 falls back to the conventional 0.85.
+    """
+    ab = energy_profile.get("annual_balance_kwh", {}) or {}
+    gas_kwh = float(ab.get("natural_gas_kwh", 0.0))
+    if gas_kwh <= 0.0:
+        return default
+    # Aggregate parsed process heat (steam + hot water + space heating)
+    # from the end-use profile list. process_cooling is excluded —
+    # cooling is met by separate refrigeration plant, not the gas
+    # boiler that the implied efficiency is anchoring.
+    heat_uses = {"steam", "hot_water", "space_heating"}
+    process_heat = sum(
+        float(p.get("annual_demand_kwh", 0.0))
+        for p in energy_profile.get("end_use_profiles", [])
+        if p.get("end_use") in heat_uses
+    )
+    if process_heat <= 0.0:
+        return default
+    eff = process_heat / gas_kwh
+    if 0.75 <= eff <= 0.98:
+        return float(eff)
+    return default
+
+
 def _stack_at_year(
     actions: Iterable[_Action],
     year_idx: int,
     gas_backup_capacity_kw: float,
     must_keep_steam_backup: bool,
+    gas_backup_efficiency: float = 0.85,
 ) -> list[dict[str, Any]]:
     """Build the dispatch technology stack as it stands at the *start* of
     planning year `year_idx` (0-indexed). All actions with action.year ≤
@@ -178,7 +214,7 @@ def _stack_at_year(
             "type": "gas_boiler",
             "id": "retained_gas",
             "capacity_kw": gas_backup_capacity_kw,
-            "efficiency": 0.85,
+            "efficiency": gas_backup_efficiency,
             "serves_end_uses": ["steam", "hot_water"],
         })
     return stack
@@ -191,6 +227,7 @@ def _baseline_dispatch_for_year(
     base_year: int,
     year_offset: int,
     gas_backup_capacity_kw: float,
+    gas_backup_efficiency: float = 0.85,
 ) -> dict[str, Any]:
     """Run dispatch with a gas-only stack to obtain the do-nothing
     counterfactual energy cost and carbon for a given year. Used as the
@@ -202,7 +239,7 @@ def _baseline_dispatch_for_year(
             "type": "gas_boiler",
             "id": "baseline_gas_only",
             "capacity_kw": max(gas_backup_capacity_kw, 10_000.0),
-            "efficiency": 0.85,
+            "efficiency": gas_backup_efficiency,
             "serves_end_uses": ["steam", "hot_water"],
         }],
         market_signals=market_signals,
@@ -540,6 +577,7 @@ def _evaluate_pathway(
     baseline_annual_carbon_t_per_year: list[float],
     must_keep_steam_backup: bool,
     gas_backup_capacity_kw: float,
+    gas_backup_efficiency: float,
     dispatch_cache: dict[tuple, dict],
     ets_price_gbp_per_t: float = 0.0,
     grant_fraction: float = 0.0,
@@ -610,6 +648,7 @@ def _evaluate_pathway(
     for y in range(horizon_years):
         stack = _stack_at_year(
             candidate.actions, y, gas_backup_capacity_kw, must_keep_steam_backup,
+            gas_backup_efficiency=gas_backup_efficiency,
         )
         sig = (_stack_signature(stack), base_year + y)
         if sig in dispatch_cache:
@@ -890,11 +929,28 @@ def optimise_investment_pathway(
     if gas_backup_kw <= 0:
         gas_backup_kw = 10_000.0   # 10 MW fallback
 
+    # Implied baseline boiler efficiency back-calculated from declared
+    # natural-gas meter and parsed process-heat demand. Anchors dispatch's
+    # baseline gas_consumed_kwh to the meter so it reconciles with
+    # compute_baseline_carbon's Scope 1 (also meter-anchored). Without
+    # this override dispatch would assume 0.85 universally and the two
+    # baselines diverge whenever site declarations imply a different
+    # efficiency. See `_implied_baseline_boiler_efficiency`.
+    gas_backup_efficiency_implied = _implied_baseline_boiler_efficiency(
+        energy_profile, default=0.85
+    )
+
     warnings_out: list[dict[str, Any]] = []
 
     # Baseline trajectory year-by-year — run dispatch with a gas-only stack
     # for each year of the horizon. Same accounting conventions as pathway
-    # dispatches (TOU tariffs, 0.85 boiler eff, identical demand profile).
+    # dispatches (TOU tariffs, identical demand profile). Boiler efficiency
+    # is implied from the site's declared natural_gas_kwh and process-heat
+    # demand (see gas_backup_efficiency_implied below) so the baseline
+    # gas_consumed_kwh reconciles with the declared meter — that fixes the
+    # ~6.6% baseline-y0 divergence between compute_baseline_carbon
+    # (meter-anchored) and pathway dispatch (was hard-coded 0.85, derived
+    # gas as process_heat/eff).
     baseline_annual_cost_per_year: list[float] = []
     baseline_annual_carbon_t_per_year: list[float] = []
     for y in range(horizon_years):
@@ -904,6 +960,7 @@ def optimise_investment_pathway(
             base_year=base_year,
             year_offset=y,
             gas_backup_capacity_kw=gas_backup_kw,
+            gas_backup_efficiency=gas_backup_efficiency_implied,
         )
         baseline_annual_cost_per_year.append(
             float(d.get("annual_summary", {}).get("total_energy_cost_gbp", 0.0))
@@ -960,6 +1017,7 @@ def optimise_investment_pathway(
             baseline_annual_carbon_t_per_year=baseline_annual_carbon_t_per_year,
             must_keep_steam_backup=must_keep_gas,
             gas_backup_capacity_kw=gas_backup_kw,
+            gas_backup_efficiency=gas_backup_efficiency_implied,
             dispatch_cache=dispatch_cache,
             ets_price_gbp_per_t=ets_price,
             grant_fraction=grant_frac,

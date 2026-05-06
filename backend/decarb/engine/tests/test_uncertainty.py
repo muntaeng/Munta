@@ -287,6 +287,8 @@ def _build_dairy_mc(dairy_5mw, n_trials: int = 1000, seed: int = 42):
         for b in dairy_5mw.get("existing_plant", {}).get("boilers", [])
         if "gas" in str(b.get("type", "")).lower()
     ) or 10_000.0
+    from decarb.engine.pathway import _implied_baseline_boiler_efficiency
+    baseline_eff = _implied_baseline_boiler_efficiency(parse_result, default=0.85)
     bcost: list[float] = []
     bcarb: list[float] = []
     for y in range(horizon):
@@ -295,7 +297,7 @@ def _build_dairy_mc(dairy_5mw, n_trials: int = 1000, seed: int = 42):
             technology_stack=[{
                 "type": "gas_boiler", "id": "baseline_gas",
                 "capacity_kw": max(gas_kw, 10_000.0),
-                "efficiency": 0.85,
+                "efficiency": baseline_eff,
                 "serves_end_uses": ["steam", "hot_water"],
             }],
             market_signals=DEFAULT_MARKET_SIGNALS,

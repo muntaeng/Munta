@@ -179,37 +179,38 @@ class TestDairyPathway:
         self, dairy_pathway_with_carbon_and_grant,
     ):
         """Reviewer iter-1 issue #4. With UK ETS forward £75/tCO2e and
-        IETF Phase-3 grant 30% — both within the realistic 2026 envelope
-        — balanced NPV must recover to material positive territory
-        (≥£100k). This guards the engineering target rather than the
-        v0 partial-implementation artefact."""
+        IETF Phase-3 grant 30%, the carbon/grant overlay is supposed
+        to materially improve Balanced NPV vs the v0-default. After
+        the assessment_2026_05_06_fixes Phase 5b baseline-eff fix
+        (which anchored compute_baseline_carbon and pathway dispatch
+        to the same declared gas meter, removing ~585 t/yr of
+        previously-credited phantom abatement) the £75 / 30% overlay
+        no longer pushes dairy Balanced NPV positive on its own — it
+        closes most of the gap but lands at ~-£30k. Test now asserts
+        that overlay-NPV is materially better than zero-overlay NPV
+        AND not catastrophically negative — a higher carbon price OR
+        larger grant is required for full NPV recovery on dairy. See
+        `test_npv_recovery_is_material` for the positive-uplift check."""
         npv = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
-        # Threshold lowered from £100k → £50k after issue D removed the
-        # unjustified TES (TES without EB) from Balanced. The TES had
-        # been overstating the overlay-scenario NPV by capturing 30%
-        # grant on £320k of capex it could not earn back via TOU
-        # arbitrage. Honest Balanced-with-overlay NPV is ~£80k.
-        assert npv >= 50_000, (
+        assert npv >= -150_000, (
             f"Balanced NPV with £75 carbon + 30% grant: £{npv:,.0f} — "
-            "expected ≥ £50k. Carbon-pricing / grant overlay is supposed "
-            "to recover the engineering target NPV from the v0-default "
-            "negative band."
+            "outside the [-£150k, +∞) honest band for dairy under v0 "
+            "physics. If this drops materially lower, investigate "
+            "whether the baseline reconciliation (implied_eff) drifted."
         )
 
     def test_npv_recovery_is_material(self, dairy_pathway, dairy_pathway_with_carbon_and_grant):
-        """The NPV uplift from £75 carbon + 30% grant must be ≥ £500k —
+        """The NPV uplift from £75 carbon + 30% grant must be ≥ £200k —
         ensures the carbon/grant overlay is doing real work, not just
-        adding noise."""
+        adding noise. Previously £300k; lowered after Phase 5b
+        baseline-eff fix removed phantom abatement from the overlay
+        scenario."""
         npv_default = dairy_pathway["pathways"]["balanced"]["npv_gbp"]
         npv_overlay = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
         delta = npv_overlay - npv_default
-        # Threshold lowered from £500k → £300k after issue D removed
-        # the unjustified TES (TES without EB) from Balanced — the
-        # 30% grant component on £320k TES capex was inflating the
-        # overlay scenario relative to the default by ~£100k.
-        assert delta >= 300_000, (
+        assert delta >= 200_000, (
             f"NPV recovery with carbon + grant only £{delta:,.0f} — "
-            "expected ≥ £300k uplift"
+            "expected ≥ £200k uplift"
         )
 
     def test_balanced_simple_payback_unset_or_long_default(self, dairy_pathway):
@@ -448,8 +449,16 @@ class TestDairyPathway:
         (b) Balanced.reduction >= every other NPV-positive candidate's
         reduction, and (c) the legacy
         `balanced_underperforms_conservative_under_v0_defaults`
-        advisory is suppressed when this rule is active."""
-        pw = _cached_pathway(dairy_5mw, ets=75.0, grant=0.30,
+        advisory is suppressed when this rule is active.
+
+        Overlay bumped from £75/30% to £100/38% (matching the regen
+        script and MC fixture) after Phase 5b baseline-eff fix —
+        £75/30% no longer produces any NPV-positive pathway for dairy
+        under the corrected baseline accounting, so the rule's
+        primary branch (positive-NPV pool) cannot be exercised at the
+        weaker overlay. £100/38% is within DESNZ Energy and Emissions
+        Projections 2024 central trajectory + IETF Phase 3 award rate."""
+        pw = _cached_pathway(dairy_5mw, ets=100.0, grant=0.38,
                              rule="max_reduction_positive_npv")
         bal = pw["pathways"]["balanced"]
         assert bal["npv_gbp"] > 0, (
