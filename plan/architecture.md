@@ -88,7 +88,6 @@
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Frontend | Next.js (existing) | Already there, fine |
 | Backend | FastAPI (existing) | Already there, fine |
 | LLM | Anthropic Claude Sonnet 4.6 | Best tool-use + reasoning combo today |
 | LLM client | Anthropic Python SDK | First-party, well-supported |
@@ -111,16 +110,7 @@
 
 ## Reuse from existing MUNTec backend
 
-| Existing module | Becomes |
-|---|---|
-| `calculator.py` | Heat pump COP + thermal calcs (industrial scale) |
-| `calculations.py` | NPV / IRR / payback engine |
-| `simulation.py` | 8,760-hour dispatch loop |
-| `weather.py` | Weather + grid intensity |
-| `solar_simulation.py` | PV component for integrated systems |
-| `battery_simulation.py` | Battery + thermal storage |
-
-Estimated reuse: ~3,000 of the existing 6,400 lines. Refactor, don't rewrite.
+The decarb engine is a clean-slate implementation. Earlier MUNTec residential heat-pump code was evaluated for reuse and discarded — the industrial scale and thermodynamic depth required first-principles redesign.
 
 ## Out of scope for v1
 
