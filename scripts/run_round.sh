@@ -65,10 +65,28 @@ run_role() {
   echo "════════════════════════════════════════════════════"
   echo "  $role  —  round=$ROUND  iter=$n  $(date -u +%H:%M:%SZ)"
   echo "════════════════════════════════════════════════════"
-  render_prompt "$tmpl" "$n" | claude -p \
-    --model opus \
-    --dangerously-skip-permissions \
-    --no-session-persistence
+
+  # Resilience: claude -p can fail mid-run on transient API/network
+  # errors (FailedToOpenSocket on dropped connection, 5xx on Anthropic
+  # blips, etc.). Wrap in an exponential-backoff retry so the loop can
+  # be left running unattended through a flaky network.
+  local tries=0 max_tries=5 wait_sec=15
+  while (( tries < max_tries )); do
+    if render_prompt "$tmpl" "$n" | claude -p \
+        --model opus \
+        --dangerously-skip-permissions \
+        --no-session-persistence; then
+      return 0
+    fi
+    tries=$(( tries + 1 ))
+    if (( tries >= max_tries )); then
+      echo "  ❌ $role exhausted ${max_tries} retries — giving up." >&2
+      return 1
+    fi
+    echo "  ⚠ $role failed (attempt ${tries}/${max_tries}); retrying in ${wait_sec}s..." >&2
+    sleep "$wait_sec"
+    wait_sec=$(( wait_sec * 2 ))
+  done
 }
 
 # Determine starting iter (1, or first iter without a build file when --resume).

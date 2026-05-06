@@ -30,6 +30,7 @@ from decarb.engine.dispatch import simulate_site_dispatch as _simulate_site_disp
 from decarb.engine.screen import screen_technologies as _screen_technologies
 from decarb.engine.pathway import optimise_investment_pathway as _optimise_investment_pathway
 from decarb.engine.uncertainty import monte_carlo_uncertainty as _monte_carlo_uncertainty
+from decarb.engine.validate import validate_pathway as _validate_pathway
 from decarb.engine.dispatch import DEFAULT_MARKET_SIGNALS
 from decarb.render import render_report as _render_report
 from decarb.corpus.db import get_conn, search_chunks
@@ -417,8 +418,60 @@ def retrieve_reference_docs(**kwargs: Any) -> dict[str, Any]:
 
 
 def validate_pathway(**kwargs: Any) -> dict[str, Any]:
-    """STUB. Implemented Week 4."""
-    return {"_stub": True, "tool": "validate_pathway"}
+    """Cross-module consistency + arithmetic validator. Reads the full
+    engine bundle from accumulated site context, runs every check in
+    decarb.engine.validate, persists the full result on
+    site_context.engine_results, and returns a compact LLM-facing
+    summary. The agent must call this after every other engine tool
+    and before render_report; render_report is gated on
+    ``passed=True``."""
+    site_brief = _site_context.get("site_brief")
+    bundle = _site_context.get("engine_results") or {}
+    energy_profile = bundle.get("parse_energy_profile") or _site_context.get("energy_profile")
+    screening = bundle.get("screen_technologies") or _site_context.get("screening")
+    baseline_carbon = bundle.get("compute_baseline_carbon")
+    dispatch = bundle.get("simulate_site_dispatch")
+    pathway = bundle.get("optimise_investment_pathway")
+    monte_carlo = bundle.get("monte_carlo_uncertainty")
+    missing = [
+        name for name, val in (
+            ("site_brief", site_brief),
+            ("parse_energy_profile", energy_profile),
+            ("compute_baseline_carbon", baseline_carbon),
+            ("screen_technologies", screening),
+            ("simulate_site_dispatch", dispatch),
+            ("optimise_investment_pathway", pathway),
+        )
+        if not val
+    ]
+    if missing:
+        return {
+            "error": (
+                "validate_pathway cannot run — missing required engine outputs: "
+                + ", ".join(missing) + ". Call those tools first."
+            )
+        }
+    full = _validate_pathway(
+        site_brief=site_brief,
+        energy_profile=energy_profile,
+        screening=screening,
+        baseline_carbon=baseline_carbon,
+        dispatch=dispatch,
+        pathway=pathway,
+        monte_carlo=monte_carlo,
+    )
+    _record_engine_output("validate_pathway", full)
+    failed = [
+        {"check_id": c["check_id"], "severity": c["severity"],
+         "message": c["message"]}
+        for c in full["checks"] if not c["passed"]
+    ]
+    return {
+        "passed": full["passed"],
+        "summary": full["summary"],
+        "failed_checks": failed,
+        "standards_cited": full["standards_cited"],
+    }
 
 
 def render_report(**kwargs: Any) -> dict[str, Any]:
@@ -432,6 +485,29 @@ def render_report(**kwargs: Any) -> dict[str, Any]:
 
     site_brief = _site_context.get("site_brief")
     bundle = _site_context.get("engine_results") or {}
+
+    # Phase 5 gate: refuse to render if validate_pathway hasn't passed.
+    validate_result = bundle.get("validate_pathway")
+    if not validate_result or not validate_result.get("passed"):
+        if not validate_result:
+            msg = (
+                "render_report blocked: validate_pathway has not been "
+                "called yet. Call validate_pathway first and address any "
+                "failed checks before requesting render_report."
+            )
+        else:
+            failed = [
+                f"{c['check_id']} ({c['severity']}): {c['message']}"
+                for c in validate_result.get("checks", [])
+                if not c.get("passed") and c.get("severity") == "error"
+            ]
+            msg = (
+                "render_report blocked: validate_pathway returned "
+                "passed=false. Address the following failed error-severity "
+                "checks before re-requesting render_report:\n- "
+                + "\n- ".join(failed)
+            )
+        return {"error": msg}
     parse_result = bundle.get("parse_energy_profile")
     carbon_result = bundle.get("compute_baseline_carbon")
     screen_result = bundle.get("screen_technologies")
@@ -463,6 +539,7 @@ def render_report(**kwargs: Any) -> dict[str, Any]:
     if fmt == "pdf":
         return {"error": "PDF rendering is deferred — request format='markdown'."}
 
+    uncertainty_result = bundle.get("monte_carlo_uncertainty")
     result = _render_report(
         site_brief=site_brief,
         parse_result=parse_result,
@@ -470,6 +547,8 @@ def render_report(**kwargs: Any) -> dict[str, Any]:
         screen_result=screen_result,
         dispatch_result=dispatch_result,
         pathway_result=pathway_result,
+        uncertainty_result=uncertainty_result,
+        validate_result=validate_result,
         format="markdown",
         include_appendices=include_appendices,
     )
@@ -755,14 +834,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "validate_pathway",
-        "description": "STUB Week 4. Energy + carbon conservation, thermo feasibility, regulatory compliance.",
+        "description": (
+            "Cross-module consistency and arithmetic check over the full "
+            "engine bundle. Call this AFTER all other tool calls and "
+            "BEFORE render_report. Returns `passed: bool` plus a "
+            "structured failed-check list. If `passed=false`, fix the "
+            "underlying engine output; do NOT proceed to render."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {
-                "scenario_id": {"type": "string", "description": "Pathway scenario to validate"},
-                "checks": {"type": "array", "items": {"type": "string"}, "description": "e.g. ['energy_balance', 'carbon_conservation', 'capex_within_budget']"},
-            },
-            "required": ["scenario_id"],
+            "properties": {},
+            "required": [],
         },
     },
     {

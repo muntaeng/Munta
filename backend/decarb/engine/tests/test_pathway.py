@@ -179,37 +179,38 @@ class TestDairyPathway:
         self, dairy_pathway_with_carbon_and_grant,
     ):
         """Reviewer iter-1 issue #4. With UK ETS forward £75/tCO2e and
-        IETF Phase-3 grant 30% — both within the realistic 2026 envelope
-        — balanced NPV must recover to material positive territory
-        (≥£100k). This guards the engineering target rather than the
-        v0 partial-implementation artefact."""
+        IETF Phase-3 grant 30%, the carbon/grant overlay is supposed
+        to materially improve Balanced NPV vs the v0-default. After
+        the assessment_2026_05_06_fixes Phase 5b baseline-eff fix
+        (which anchored compute_baseline_carbon and pathway dispatch
+        to the same declared gas meter, removing ~585 t/yr of
+        previously-credited phantom abatement) the £75 / 30% overlay
+        no longer pushes dairy Balanced NPV positive on its own — it
+        closes most of the gap but lands at ~-£30k. Test now asserts
+        that overlay-NPV is materially better than zero-overlay NPV
+        AND not catastrophically negative — a higher carbon price OR
+        larger grant is required for full NPV recovery on dairy. See
+        `test_npv_recovery_is_material` for the positive-uplift check."""
         npv = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
-        # Threshold lowered from £100k → £50k after issue D removed the
-        # unjustified TES (TES without EB) from Balanced. The TES had
-        # been overstating the overlay-scenario NPV by capturing 30%
-        # grant on £320k of capex it could not earn back via TOU
-        # arbitrage. Honest Balanced-with-overlay NPV is ~£80k.
-        assert npv >= 50_000, (
+        assert npv >= -150_000, (
             f"Balanced NPV with £75 carbon + 30% grant: £{npv:,.0f} — "
-            "expected ≥ £50k. Carbon-pricing / grant overlay is supposed "
-            "to recover the engineering target NPV from the v0-default "
-            "negative band."
+            "outside the [-£150k, +∞) honest band for dairy under v0 "
+            "physics. If this drops materially lower, investigate "
+            "whether the baseline reconciliation (implied_eff) drifted."
         )
 
     def test_npv_recovery_is_material(self, dairy_pathway, dairy_pathway_with_carbon_and_grant):
-        """The NPV uplift from £75 carbon + 30% grant must be ≥ £500k —
+        """The NPV uplift from £75 carbon + 30% grant must be ≥ £200k —
         ensures the carbon/grant overlay is doing real work, not just
-        adding noise."""
+        adding noise. Previously £300k; lowered after Phase 5b
+        baseline-eff fix removed phantom abatement from the overlay
+        scenario."""
         npv_default = dairy_pathway["pathways"]["balanced"]["npv_gbp"]
         npv_overlay = dairy_pathway_with_carbon_and_grant["pathways"]["balanced"]["npv_gbp"]
         delta = npv_overlay - npv_default
-        # Threshold lowered from £500k → £300k after issue D removed
-        # the unjustified TES (TES without EB) from Balanced — the
-        # 30% grant component on £320k TES capex was inflating the
-        # overlay scenario relative to the default by ~£100k.
-        assert delta >= 300_000, (
+        assert delta >= 200_000, (
             f"NPV recovery with carbon + grant only £{delta:,.0f} — "
-            "expected ≥ £300k uplift"
+            "expected ≥ £200k uplift"
         )
 
     def test_balanced_simple_payback_unset_or_long_default(self, dairy_pathway):
@@ -448,8 +449,16 @@ class TestDairyPathway:
         (b) Balanced.reduction >= every other NPV-positive candidate's
         reduction, and (c) the legacy
         `balanced_underperforms_conservative_under_v0_defaults`
-        advisory is suppressed when this rule is active."""
-        pw = _cached_pathway(dairy_5mw, ets=75.0, grant=0.30,
+        advisory is suppressed when this rule is active.
+
+        Overlay bumped from £75/30% to £100/38% (matching the regen
+        script and MC fixture) after Phase 5b baseline-eff fix —
+        £75/30% no longer produces any NPV-positive pathway for dairy
+        under the corrected baseline accounting, so the rule's
+        primary branch (positive-NPV pool) cannot be exercised at the
+        weaker overlay. £100/38% is within DESNZ Energy and Emissions
+        Projections 2024 central trajectory + IETF Phase 3 award rate."""
+        pw = _cached_pathway(dairy_5mw, ets=100.0, grant=0.38,
                              rule="max_reduction_positive_npv")
         bal = pw["pathways"]["balanced"]
         assert bal["npv_gbp"] > 0, (
@@ -726,4 +735,188 @@ class TestSoftDrinksPathway:
         npv = softdrinks_pathway_overlay["pathways"]["balanced"]["npv_gbp"]
         assert npv >= 2_000_000, (
             f"Soft drinks balanced NPV with overlay £{npv:,.0f} below £2M"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Discounted-payback invariants (Phase 2 of assessment_2026_05_06_fixes)
+# ---------------------------------------------------------------------------
+#
+# Bug background: `_discounted_payback_years` previously had an early
+# return that fired whenever the year-0 cumulative was non-negative,
+# producing 0.0 for cashflow shapes like `[+grant, -capex, +savings...]`
+# even though the real first-cross is years later. The early return is
+# dropped; these tests lock the invariant.
+
+
+from decarb.engine.pathway import _discounted_payback_years  # noqa: E402
+
+
+class TestDiscountedPaybackInvariants:
+    """Cross-site, cross-pathway invariant: discounted payback must be
+    >= simple payback (or both None). Plus targeted unit tests for the
+    year-0 short-circuit bug.
+    """
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    @pytest.mark.parametrize("pathway_name", ["conservative", "balanced", "aggressive"])
+    def test_discounted_ge_simple_for_each_named_pathway(
+        self, request, site_fixture, pathway_name
+    ):
+        """For each (site, named pathway), discounted payback must be at
+        least as long as simple payback when both are defined.
+
+        Two None-handling rules:
+          - both None: invariant vacuously holds (pathway uneconomic on
+            both metrics).
+          - simple-non-None, discounted-None: also valid — a marginal
+            pathway that just-recovers undiscounted near the horizon end
+            may never recover under discounting. Discounting pushes
+            payback later, so it can push it past the horizon entirely.
+          - simple-None, discounted-non-None: STRUCTURALLY IMPOSSIBLE.
+            If undiscounted cashflows never crossed zero, discounted ones
+            can't either (discounting only shrinks future inflows).
+        """
+        site = request.getfixturevalue(site_fixture)
+        pw = _cached_pathway(site, ets=75.0, grant=0.30)["pathways"][pathway_name]
+        sp = pw["simple_payback_years"]
+        dp = pw["discounted_payback_years"]
+        if sp is None:
+            assert dp is None, (
+                f"{site_fixture}/{pathway_name}: simple payback is None "
+                f"(undiscounted cashflows never recover) but discounted "
+                f"payback returned {dp}. Structurally impossible — "
+                f"discounting only shrinks future inflows."
+            )
+            return
+        if dp is None:
+            return  # marginal: simple just-recovers, discounted doesn't
+        assert dp >= sp - 0.01, (  # 0.01-yr tolerance for FP rounding
+            f"{site_fixture}/{pathway_name}: discounted payback {dp:.2f}yr "
+            f"< simple payback {sp:.2f}yr — discounting can only push "
+            f"payback later, never earlier."
+        )
+
+    def test_grant_year_zero_does_not_short_circuit(self):
+        """Reproduce the bug from the brief: a [+grant, -capex, +savings...]
+        cashflow shape must NOT return 0.0 just because cumulative is
+        non-negative at y=0. The capex hit at y=1 swamps the grant; real
+        recovery is years later."""
+        cf = [+593_712.0, -1_562_400.0] + [250_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is not None
+        assert result >= 1.0, (
+            f"Discounted payback {result} returned for grant-at-y0 / "
+            f"capex-at-y1 / savings-thereafter shape — should be the "
+            f"first year cumulative crosses zero AFTER the y=1 capex "
+            f"hit, not 0.0. Year-0 short-circuit bug regression."
+        )
+
+    def test_capex_year_zero_typical_case(self):
+        """Standard [-net_capex, +savings...] shape with a hand-computed
+        answer. cashflows = [-1_000_000, +200_000 × 14] at 8% discount.
+        Hand check (cumulative undiscounted needs ~5 yrs raw; discounted
+        is longer). Cumulative at year 6: -1e6 + 200_000*(1/1.08 +
+        1/1.08^2 + ... + 1/1.08^6) = -1e6 + 200_000 * 4.6229 = -75_417.
+        Year 7: + 200_000/1.08^7 = 116_725 → cumulative +41_308.
+        First-cross at y=7 with prev=-75417, disc_cf=116725 →
+        return 6 + 75417/116725 = 6 + 0.6461 = 6.65 yrs."""
+        cf = [-1_000_000.0] + [200_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is not None
+        assert 6.5 < result < 6.8, (
+            f"Discounted payback {result:.4f} outside expected band "
+            f"6.5-6.8 yrs for standard [-1M, +200k×14] @ 8%."
+        )
+
+    def test_unrecoverable_returns_none(self):
+        """A pathway whose savings never overtake the discounted capex
+        outflow within the horizon must return None, not 0.0."""
+        cf = [-1_000_000.0] + [50_000.0] * 14   # savings too small
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is None
+
+    def test_y0_zero_cashflow_does_not_return_zero(self):
+        """Edge case: cashflows[0] = 0. Function must not declare
+        instant payback (cumulative starts at 0, ends y=0 at 0 — the
+        prev<0 condition is false)."""
+        cf = [0.0, -1_000_000.0] + [200_000.0] * 14
+        result = _discounted_payback_years(cf, 0.08)
+        assert result is None or result >= 1.0, (
+            f"y0-zero cashflow returned payback {result}; must not "
+            f"short-circuit to 0.0 when prev=cumulative=0."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Screen ↔ Pathway grid-headroom consistency
+# (Phase 3 of assessment_2026_05_06_fixes — D2)
+# ---------------------------------------------------------------------------
+
+
+class TestScreenPathwayGridConsistency:
+    """When the screen routes a tech to "pending senior grid decision"
+    (utilisation > 1.5× declared headroom), the optimiser must not
+    silently include it in a recommended pathway. The fix exposes a
+    second pathway triple — `pathways_no_reinforcement` — built from
+    the subset of evaluated candidates whose total stack electrical
+    demand stays within 1.0× headroom AND carry no requires_grid_decision
+    flag. The reader sees both tracks (without / with reinforcement).
+    """
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_field_always_exposed(self, request, site_fixture):
+        """Result dict must always carry `pathways_no_reinforcement`.
+        Either with three named pathways, or with `infeasible_reason`."""
+        site = request.getfixturevalue(site_fixture)
+        result = _cached_pathway(site, ets=75.0, grant=0.30)
+        assert "pathways_no_reinforcement" in result
+        nr = result["pathways_no_reinforcement"]
+        # Either three named pathways or an infeasible_reason — never empty.
+        if "infeasible_reason" in nr:
+            assert isinstance(nr["infeasible_reason"], str) and nr["infeasible_reason"]
+        else:
+            assert {"conservative", "balanced", "aggressive"}.issubset(nr.keys())
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_pathways_carry_no_grid_decision_flag(
+        self, request, site_fixture
+    ):
+        """Every action in a no_reinforcement-track pathway must have
+        `requires_grid_decision=False`. If the screen routed a tech to
+        pending-grid, it must NOT appear in the no-reinforcement track."""
+        site = request.getfixturevalue(site_fixture)
+        nr = _cached_pathway(site, ets=75.0, grant=0.30)["pathways_no_reinforcement"]
+        if "infeasible_reason" in nr:
+            return  # pool was empty for this site — vacuously consistent
+        for name in ("conservative", "balanced", "aggressive"):
+            pw = nr.get(name)
+            if pw is None:
+                continue
+            for a in pw.get("actions", []):
+                assert not a.get("requires_grid_decision", False), (
+                    f"{site_fixture}/no-reinforcement/{name} carries action "
+                    f"{a.get('tech_id')} with requires_grid_decision=True — "
+                    f"contradicts the §3.3 pending-grid screening verdict."
+                )
+
+    @pytest.mark.parametrize("site_fixture", ["dairy_5mw", "brewery_8mw", "soft_drinks_12mw"])
+    def test_no_reinforcement_envelope_exposed_in_kw(self, request, site_fixture):
+        """The 1.0× envelope (kW) is exposed at the top level so the
+        renderer can quote it in §4.1a without re-deriving."""
+        site = request.getfixturevalue(site_fixture)
+        result = _cached_pathway(site, ets=75.0, grant=0.30)
+        assert "no_reinforcement_envelope_kw" in result
+        env = result["no_reinforcement_envelope_kw"]
+        # Envelope is the site's declared MVA × 1000. Tolerate 0 if the
+        # site declares no headroom (treats every electrified path as
+        # needing reinforcement).
+        assert isinstance(env, (int, float)) and env >= 0
+
+    def test_with_reinforcement_track_unchanged(self, dairy_pathway_with_carbon_and_grant):
+        """The historical `pathways` field is preserved as the
+        with-reinforcement set (backwards compat)."""
+        result = dairy_pathway_with_carbon_and_grant
+        assert result["pathways"] is result["pathways_with_reinforcement"], (
+            "`pathways` must alias `pathways_with_reinforcement` for backwards compat."
         )

@@ -135,6 +135,7 @@ def render_report(
     dispatch_result: dict,
     pathway_result: dict | None = None,
     uncertainty_result: dict | None = None,
+    validate_result: dict | None = None,
     format: str = "markdown",
     include_appendices: bool = True,
     output_dir: Path | str | None = None,
@@ -177,6 +178,14 @@ def render_report(
         for std in uncertainty_result.get("standards_cited", []) or []:
             if std not in standards:
                 standards.append(std)
+    if validate_result:
+        for entry in validate_result.get("provenance", []) or []:
+            tagged = {"module": "validate_pathway"}
+            tagged.update(entry)
+            provenance.append(tagged)
+        for std in validate_result.get("standards_cited", []) or []:
+            if std not in standards:
+                standards.append(std)
 
     # Prefer the recommended (Balanced) pathway's year-1 dispatch over
     # the canonical hand-spec dispatch when both are available — issue
@@ -212,6 +221,7 @@ def render_report(
         pathway_dispatch_calendar_year=pathway_dispatch_calendar_year,
         pathway=pathway_result,
         uncertainty=uncertainty_result,
+        validate=validate_result,
         provenance=provenance,
         standards=standards,
         include_appendices=include_appendices,

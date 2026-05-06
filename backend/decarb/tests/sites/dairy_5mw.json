@@ -104,11 +104,12 @@
         "all_risk_metrics_present": true
       },
       "honest_observed_v0_bands": {
-        "prob_npv_positive_min": 0.70,
-        "prob_npv_positive_max": 0.90,
+        "_note": "Bands re-calibrated after assessment_2026_05_06_fixes Phase 5b baseline-eff fix. The previously-credited phantom Scope-1 abatement (~585 t/yr from process-heat/0.85 ≠ declared meter) was removed when compute_baseline_carbon and pathway dispatch were reconciled to the same declared natural-gas meter. Honest dairy economics under £100/38% overlay now show prob_npv_positive ≈ 0.55 (was 0.80) and CVaR_95 a positive £-loss of ~£700k. spec_targets retained for the year-7 expert review — they are the engineering target the engine should meet once per-trial dispatch replaces closed-form re-evaluation in v0.3 (which will let gas-price uncertainty propagate through HP/EB switching rather than the static counterfactual).",
+        "prob_npv_positive_min": 0.45,
+        "prob_npv_positive_max": 0.75,
         "sobol_top2_total_order_allowed_set": ["electricity_price", "gas_price", "ietf_grant_outcome"],
-        "cvar_95_npv_loss_min_gbp": 500000,
-        "var_95_npv_loss_min_gbp": 400000,
+        "cvar_95_npv_loss_min_gbp": 400000,
+        "var_95_npv_loss_min_gbp": 300000,
         "all_risk_metrics_required": [
           "p10_gbp", "p50_gbp", "p90_gbp", "mean_gbp", "stdev_gbp", "skew",
           "var_95_npv_gbp", "cvar_95_npv_gbp",

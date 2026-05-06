@@ -132,11 +132,73 @@ def _annual_opex_for_action(a: _Action) -> float:
     return _OPEX_FRACTION_OF_CAPEX.get(a.tech_kind, 0.0) * _capex_for_action(a)
 
 
+# Typical industrial mid-temp HP COP for grid-headroom screening. Real
+# dispatch uses CoolProp at the actual source/sink, but the screening
+# question — "does this stack fit in the available DNO connection?" —
+# only needs a representative steady-state factor.
+_TYPICAL_HP_COP_FOR_GRID_SCREEN = 3.0
+
+
+def _total_stack_electrical_demand_kw(actions: list[dict[str, Any]]) -> float:
+    """Approximate steady-state electrical demand (kW) of a fully-installed
+    pathway stack — used only for the no-reinforcement / with-reinforcement
+    grid-headroom partition (Phase 3 of assessment_2026_05_06_fixes).
+
+    HP draw is thermal_kw / typical COP. EB nameplate ≈ thermal_kw (≥99%
+    efficient). TES and WHR contribute no incremental DNO draw.
+    """
+    elec = 0.0
+    for a in actions:
+        kind = a.get("tech_kind", "")
+        cap = float(a.get("capacity", 0.0))
+        if "heat_pump" in kind:
+            elec += cap / _TYPICAL_HP_COP_FOR_GRID_SCREEN
+        elif kind == "electrode_boiler":
+            elec += cap
+    return elec
+
+
+def _implied_baseline_boiler_efficiency(
+    energy_profile: dict[str, Any], default: float = 0.85
+) -> float:
+    """Boiler efficiency back-calculated from the site's declared annual
+    natural-gas consumption and parsed process-heat demand. Anchors on
+    the meter (the authoritative real-world quantity) so dispatch's
+    baseline gas_consumed_kwh reconciles with `compute_baseline_carbon`'s
+    Scope 1 number, which is computed from the same meter. A fixture
+    where declared gas × 0.85 ≠ process_heat introduced a ~6.6% baseline
+    inconsistency (validate_pathway's exec_summary_baseline_consistency
+    check). Clamped to [0.75, 0.98] — outside that band the inputs are
+    so inconsistent that v0 falls back to the conventional 0.85.
+    """
+    ab = energy_profile.get("annual_balance_kwh", {}) or {}
+    gas_kwh = float(ab.get("natural_gas_kwh", 0.0))
+    if gas_kwh <= 0.0:
+        return default
+    # Aggregate parsed process heat (steam + hot water + space heating)
+    # from the end-use profile list. process_cooling is excluded —
+    # cooling is met by separate refrigeration plant, not the gas
+    # boiler that the implied efficiency is anchoring.
+    heat_uses = {"steam", "hot_water", "space_heating"}
+    process_heat = sum(
+        float(p.get("annual_demand_kwh", 0.0))
+        for p in energy_profile.get("end_use_profiles", [])
+        if p.get("end_use") in heat_uses
+    )
+    if process_heat <= 0.0:
+        return default
+    eff = process_heat / gas_kwh
+    if 0.75 <= eff <= 0.98:
+        return float(eff)
+    return default
+
+
 def _stack_at_year(
     actions: Iterable[_Action],
     year_idx: int,
     gas_backup_capacity_kw: float,
     must_keep_steam_backup: bool,
+    gas_backup_efficiency: float = 0.85,
 ) -> list[dict[str, Any]]:
     """Build the dispatch technology stack as it stands at the *start* of
     planning year `year_idx` (0-indexed). All actions with action.year ≤
@@ -152,7 +214,7 @@ def _stack_at_year(
             "type": "gas_boiler",
             "id": "retained_gas",
             "capacity_kw": gas_backup_capacity_kw,
-            "efficiency": 0.85,
+            "efficiency": gas_backup_efficiency,
             "serves_end_uses": ["steam", "hot_water"],
         })
     return stack
@@ -165,6 +227,7 @@ def _baseline_dispatch_for_year(
     base_year: int,
     year_offset: int,
     gas_backup_capacity_kw: float,
+    gas_backup_efficiency: float = 0.85,
 ) -> dict[str, Any]:
     """Run dispatch with a gas-only stack to obtain the do-nothing
     counterfactual energy cost and carbon for a given year. Used as the
@@ -176,7 +239,7 @@ def _baseline_dispatch_for_year(
             "type": "gas_boiler",
             "id": "baseline_gas_only",
             "capacity_kw": max(gas_backup_capacity_kw, 10_000.0),
-            "efficiency": 0.85,
+            "efficiency": gas_backup_efficiency,
             "serves_end_uses": ["steam", "hot_water"],
         }],
         market_signals=market_signals,
@@ -215,19 +278,48 @@ def _irr_brentq(cashflows: list[float]) -> float | None:
         return None
 
 
-def _simple_payback_years(
-    capex_total: float, annual_savings_year1: float
-) -> float | None:
-    if annual_savings_year1 <= 0 or capex_total <= 0:
-        return None
-    return capex_total / annual_savings_year1
+def _simple_payback_years(cashflows: list[float]) -> float | None:
+    """Year (interpolated) at which cumulative undiscounted cashflow first
+    turns non-negative. Same first-cross convention as
+    ``_discounted_payback_years`` but without time-value discounting.
+
+    The textbook ``simple_payback = capex / year_1_savings`` formulation is
+    only meaningful when annual savings are roughly constant. With ramping
+    savings (e.g. declining grid carbon, escalating gas price, phased
+    capex install), cumulative-cross is the meaningful undiscounted
+    analogue and preserves the invariant ``discounted >= simple``.
+
+    cashflows convention: ``cashflows[0]`` is the year-0 net (capex - grant
+    - opex + savings); ``cashflows[i]`` for ``i>=1`` is year-i net.
+    """
+    cumulative = 0.0
+    for y, cf in enumerate(cashflows):
+        prev = cumulative
+        cumulative += cf
+        if prev < 0 <= cumulative:
+            return (y - 1) + (-prev) / cf if cf != 0 else float(y)
+    return None
 
 
 def _discounted_payback_years(
     cashflows: list[float], discount_rate: float
 ) -> float | None:
-    """Year (interpolated) at which cumulative discounted cashflow turns
-    positive. Returns None if it never recovers within the horizon."""
+    """Year (interpolated) at which cumulative discounted cashflow first
+    turns non-negative AND remains non-negative through the horizon end.
+
+    cashflows convention: ``cashflows[0]`` is the year-0 net (capex - grant
+    - opex + savings); ``cashflows[i]`` for ``i>=1`` is year-i net (savings
+    - opex). Capex outflows ahead of operational savings means
+    ``cashflows[0]`` is typically negative.
+
+    v0 implementation: first-cross only. A pathway that crosses zero early
+    and dips back below in year y due to mid-life replacement opex (when
+    ageing lands in v0.2) will report the first cross in v0. The
+    "remains non-negative through horizon end" contract is the target for
+    v0.2, where ageing makes the distinction material.
+
+    Returns None if cumulative never reaches zero within the horizon.
+    """
     cumulative = 0.0
     for y, cf in enumerate(cashflows):
         disc_cf = cf / ((1.0 + discount_rate) ** y)
@@ -236,8 +328,6 @@ def _discounted_payback_years(
         if prev < 0 <= cumulative:
             # Linear interpolation within year y.
             return (y - 1) + (-prev) / disc_cf if disc_cf != 0 else float(y)
-        if y == 0 and cumulative >= 0:
-            return 0.0
     return None
 
 
@@ -487,6 +577,7 @@ def _evaluate_pathway(
     baseline_annual_carbon_t_per_year: list[float],
     must_keep_steam_backup: bool,
     gas_backup_capacity_kw: float,
+    gas_backup_efficiency: float,
     dispatch_cache: dict[tuple, dict],
     ets_price_gbp_per_t: float = 0.0,
     grant_fraction: float = 0.0,
@@ -557,6 +648,7 @@ def _evaluate_pathway(
     for y in range(horizon_years):
         stack = _stack_at_year(
             candidate.actions, y, gas_backup_capacity_kw, must_keep_steam_backup,
+            gas_backup_efficiency=gas_backup_efficiency,
         )
         sig = (_stack_signature(stack), base_year + y)
         if sig in dispatch_cache:
@@ -619,22 +711,13 @@ def _evaluate_pathway(
     npv = _npv(cashflows, discount_rate)
     irr = _irr_brentq(cashflows)
 
-    # Year-1 savings used for simple payback (year 1 = first full
-    # operational year after the year-0 capex hit). Use horizon[1] if
-    # available, else horizon[0]. Includes carbon value to be consistent
-    # with the cashflow definition above.
-    pb_year = 1 if horizon_years > 1 else 0
-    pb_carbon_value = max(
-        0.0,
-        baseline_annual_carbon_t_per_year[pb_year] - annual_carbon_t[pb_year],
-    ) * ets_price_gbp_per_t
-    annual_savings_y1 = (
-        baseline_annual_cost_gbp_per_year[pb_year]
-        - annual_dispatch_costs[pb_year]
-        + pb_carbon_value
-        - opex_per_year[pb_year]
-    )
-    simple_payback = _simple_payback_years(capex_total, annual_savings_y1)
+    # Simple payback now uses cumulative-undiscounted-cross over the same
+    # cashflow array as discounted payback (Phase 2 of the
+    # assessment_2026_05_06_fixes round). The previous textbook
+    # `capex_total / annual_savings_year1` formulation overstated payback
+    # for pathways with ramping savings (declining grid carbon, escalating
+    # gas price), which broke the `discounted >= simple` invariant.
+    simple_payback = _simple_payback_years(cashflows)
     discounted_payback = _discounted_payback_years(cashflows, discount_rate)
 
     # Carbon metrics
@@ -719,6 +802,13 @@ def _evaluate_pathway(
             round(lcoh_gbp_per_mwh, 1) if lcoh_gbp_per_mwh is not None else None
         ),
         "year_15_reduction_pct": round(year_15_reduction_pct, 1),
+        # Phase 4 of assessment_2026_05_06_fixes (D4): expose
+        # baseline-y0 and pathway-y15 carbon totals as named fields so
+        # the §1 Executive Summary can lead with the horizon-end figure
+        # without the renderer doing arithmetic. Both are Scope 1+2
+        # totals on the location-based basis used elsewhere.
+        "baseline_year_0_carbon_t_co2e": round(baseline_y0_carbon, 1),
+        "year_15_total_carbon_t_co2e": round(pathway_y15_carbon, 1),
         "cumulative_carbon_abated_t_co2e": round(cumulative_abated_t, 0),
         "cashflows_gbp": [round(c, 0) for c in cashflows],
         "annual_dispatch_cost_gbp": [round(c, 0) for c in annual_dispatch_costs],
@@ -839,11 +929,28 @@ def optimise_investment_pathway(
     if gas_backup_kw <= 0:
         gas_backup_kw = 10_000.0   # 10 MW fallback
 
+    # Implied baseline boiler efficiency back-calculated from declared
+    # natural-gas meter and parsed process-heat demand. Anchors dispatch's
+    # baseline gas_consumed_kwh to the meter so it reconciles with
+    # compute_baseline_carbon's Scope 1 (also meter-anchored). Without
+    # this override dispatch would assume 0.85 universally and the two
+    # baselines diverge whenever site declarations imply a different
+    # efficiency. See `_implied_baseline_boiler_efficiency`.
+    gas_backup_efficiency_implied = _implied_baseline_boiler_efficiency(
+        energy_profile, default=0.85
+    )
+
     warnings_out: list[dict[str, Any]] = []
 
     # Baseline trajectory year-by-year — run dispatch with a gas-only stack
     # for each year of the horizon. Same accounting conventions as pathway
-    # dispatches (TOU tariffs, 0.85 boiler eff, identical demand profile).
+    # dispatches (TOU tariffs, identical demand profile). Boiler efficiency
+    # is implied from the site's declared natural_gas_kwh and process-heat
+    # demand (see gas_backup_efficiency_implied below) so the baseline
+    # gas_consumed_kwh reconciles with the declared meter — that fixes the
+    # ~6.6% baseline-y0 divergence between compute_baseline_carbon
+    # (meter-anchored) and pathway dispatch (was hard-coded 0.85, derived
+    # gas as process_heat/eff).
     baseline_annual_cost_per_year: list[float] = []
     baseline_annual_carbon_t_per_year: list[float] = []
     for y in range(horizon_years):
@@ -853,6 +960,7 @@ def optimise_investment_pathway(
             base_year=base_year,
             year_offset=y,
             gas_backup_capacity_kw=gas_backup_kw,
+            gas_backup_efficiency=gas_backup_efficiency_implied,
         )
         baseline_annual_cost_per_year.append(
             float(d.get("annual_summary", {}).get("total_energy_cost_gbp", 0.0))
@@ -909,6 +1017,7 @@ def optimise_investment_pathway(
             baseline_annual_carbon_t_per_year=baseline_annual_carbon_t_per_year,
             must_keep_steam_backup=must_keep_gas,
             gas_backup_capacity_kw=gas_backup_kw,
+            gas_backup_efficiency=gas_backup_efficiency_implied,
             dispatch_cache=dispatch_cache,
             ets_price_gbp_per_t=ets_price,
             grant_fraction=grant_frac,
@@ -930,78 +1039,105 @@ def optimise_investment_pathway(
     #                  Balanced economics". Δ = max(£500k, 25% × |best NPV|).
     #   Aggressive   = max year-15 reduction subject to capex ≤ budget.
     #                  The all-out carbon-leader, no NPV constraint.
-    pathways: dict[str, Any] = {}
-    if evaluated:
-        # Balanced selection rule. v0 default is `max_npv` (the "best
-        # value" pick). `max_reduction_positive_npv` (Reviewer iter-2,
-        # issue F) selects the highest year-15 reduction among
-        # candidates whose NPV remains positive — i.e. the pathway
-        # that buys the most carbon without going under water.
+    def _select_named_triple(pool: list[dict[str, Any]]) -> dict[str, Any]:
+        """Pick Conservative/Balanced/Aggressive from an evaluated pool
+        using the active selection rules. Returns {} if pool is empty.
+        Extracted from inline so the no-reinforcement and
+        with-reinforcement pools can be selected independently
+        (Phase 3 of assessment_2026_05_06_fixes)."""
+        if not pool:
+            return {}
         if pathway_selection_rule == "max_reduction_positive_npv":
-            positive_npv = [e for e in evaluated if e["npv_gbp"] > 0]
+            positive_npv = [e for e in pool if e["npv_gbp"] > 0]
             if positive_npv:
-                balanced = max(
+                bal = max(
                     positive_npv,
-                    key=lambda e: (
-                        e["year_15_reduction_pct"], e["npv_gbp"],
-                    ),
+                    key=lambda e: (e["year_15_reduction_pct"], e["npv_gbp"]),
                 )
             else:
-                # No NPV-positive pathway exists under the current
-                # tariffs / overlay; fall back to max-NPV so the
-                # selection rule is total. The `carbon_price_and_grant
-                # _excluded` warning will already be advising the
-                # senior reader to apply the overlay.
-                balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+                bal = max(pool, key=lambda e: e["npv_gbp"])
         elif pathway_selection_rule == "max_npv":
-            balanced = max(evaluated, key=lambda e: e["npv_gbp"])
+            bal = max(pool, key=lambda e: e["npv_gbp"])
         else:
             raise ValueError(
                 f"Unknown pathway_selection_rule {pathway_selection_rule!r} — "
                 "expected one of: max_npv, max_reduction_positive_npv"
             )
-        best_npv = balanced["npv_gbp"]
-        delta = max(500_000.0, 0.25 * abs(best_npv))
-
-        small_capex_cap = 0.25 * capex_budget
-        cons_pool = [
-            e for e in evaluated
-            if e["capex_total_gbp"] <= small_capex_cap
-            and e["npv_gbp"] >= best_npv - delta
+        bn = bal["npv_gbp"]
+        d = max(500_000.0, 0.25 * abs(bn))
+        small = 0.25 * capex_budget
+        cp = [
+            e for e in pool
+            if e["capex_total_gbp"] <= small
+            and e["npv_gbp"] >= bn - d
             and e["year_15_reduction_pct"] > 0
         ]
-        # Fallbacks if no candidate satisfies both constraints:
-        # 1. Relax the small-capex cap to 50% of budget
-        # 2. Relax further to "any pathway with positive reduction and
-        #    NPV-near-best", picking smallest capex
-        # 3. Last resort: smallest-capex pathway with positive reduction
-        if not cons_pool:
-            cons_pool = [
-                e for e in evaluated
+        if not cp:
+            cp = [
+                e for e in pool
                 if e["capex_total_gbp"] <= 0.5 * capex_budget
-                and e["npv_gbp"] >= best_npv - delta
+                and e["npv_gbp"] >= bn - d
                 and e["year_15_reduction_pct"] > 0
             ]
-        if not cons_pool:
-            cons_pool = [
-                e for e in evaluated
+        if not cp:
+            cp = [
+                e for e in pool
                 if e["year_15_reduction_pct"] > 0
-                and e["npv_gbp"] >= best_npv - delta
+                and e["npv_gbp"] >= bn - d
             ]
-        if not cons_pool:
-            cons_pool = [e for e in evaluated if e["year_15_reduction_pct"] > 0]
-        if not cons_pool:
-            cons_pool = evaluated
-        conservative = max(
-            cons_pool,
-            key=lambda e: (e["year_15_reduction_pct"], -e["capex_total_gbp"]),
-        )
-        pathways["conservative"] = {**conservative, "name": "conservative"}
-        pathways["balanced"] = {**balanced, "name": "balanced"}
+        if not cp:
+            cp = [e for e in pool if e["year_15_reduction_pct"] > 0]
+        if not cp:
+            cp = pool
+        cons = max(cp, key=lambda e: (e["year_15_reduction_pct"], -e["capex_total_gbp"]))
+        agg = max(pool, key=lambda e: e["year_15_reduction_pct"])
+        return {
+            "conservative": {**cons, "name": "conservative"},
+            "balanced": {**bal, "name": "balanced"},
+            "aggressive": {**agg, "name": "aggressive"},
+        }
 
-        aggressive = max(evaluated, key=lambda e: e["year_15_reduction_pct"])
-        pathways["aggressive"] = {**aggressive, "name": "aggressive"}
-    else:
+    # Partition the evaluated pool into the no-reinforcement subset
+    # (stack electrical demand ≤ 1.0 × declared headroom AND no
+    # action carries requires_grid_decision). The with-reinforcement
+    # pool is the full evaluated set — same as before this round.
+    headroom_kw_no_reinforcement = (
+        float(constraints.get("site_grid_headroom_mva", 0.0)) * 1000.0
+    )
+
+    def _is_no_reinforcement_compatible(rec: dict[str, Any]) -> bool:
+        if any(a.get("requires_grid_decision") for a in rec.get("actions", [])):
+            return False
+        elec_kw = _total_stack_electrical_demand_kw(rec.get("actions", []))
+        if headroom_kw_no_reinforcement <= 0.0:
+            # No declared headroom — every electrified pathway needs a
+            # connection conversation. Treat as infeasible without
+            # reinforcement.
+            return elec_kw == 0.0
+        return elec_kw <= headroom_kw_no_reinforcement
+
+    no_reinforcement_pool = [
+        e for e in evaluated if _is_no_reinforcement_compatible(e)
+    ]
+
+    pathways: dict[str, Any] = _select_named_triple(evaluated)
+    pathways_no_reinforcement: dict[str, Any] = (
+        _select_named_triple(no_reinforcement_pool)
+        if no_reinforcement_pool
+        else {
+            "infeasible_reason": (
+                "No candidate pathway delivers measurable carbon "
+                f"reduction within the site's declared no-reinforcement "
+                f"electrical envelope ({headroom_kw_no_reinforcement:.0f} "
+                "kW = 1.0× site_grid_headroom_mva). Every named pathway "
+                "in §4.1b therefore presumes DNO reinforcement; obtain "
+                "an indicative G99 connection offer before final "
+                "investment commitment."
+            ),
+        }
+    )
+
+    if not evaluated:
         warnings_out.append({
             "severity": "high",
             "code": "no_evaluated_pathways",
@@ -1247,7 +1383,10 @@ def optimise_investment_pathway(
         "ietf_grant_fraction": grant_frac,
         "candidate_count": len(candidates),
         "evaluated_count": len(evaluated),
-        "pathways": pathways,
+        "pathways": pathways,                            # historical alias = with-reinforcement set
+        "pathways_with_reinforcement": pathways,
+        "pathways_no_reinforcement": pathways_no_reinforcement,
+        "no_reinforcement_envelope_kw": headroom_kw_no_reinforcement,
         "pareto_frontier": pareto_capex,                  # legacy alias = capex frontier
         "pareto_frontier_capex_vs_carbon": pareto_capex,
         "pareto_frontier_npv_vs_carbon": pareto_npv,

@@ -2,6 +2,10 @@
    Every number rendered must come from one of the input dicts:
      site, parse, carbon, screen, dispatch, provenance, standards.
    Modules not yet built render as ROADMAP placeholders, not fake data. #}
+{% if validate and not validate.passed %}
+> **DRAFT — VALIDATION FAILED — DO NOT DISTRIBUTE.** `validate_pathway` returned `passed=false` ({{ validate.summary.errors }} error-severity check(s) failed). The agent loop normally blocks render in this state; this output is a deliberate-debug build for triage. See §10 for the failed-check list.
+
+{% endif %}
 # Industrial Decarbonisation Pathway Analysis
 
 | | |
@@ -28,7 +32,10 @@
 The technology screen retained **{{ screen.shortlist_count }} site-applicable candidates from a longlist of 16** ({{ (16 - screen.candidate_count) }} excluded by site temperature/sector pre-filter; of the {{ screen.candidate_count }} that reached the 9-axis decision tree, {{ screen.excluded_count }} were excluded on process-compatibility, infrastructure, or client-constraint grounds{% if screen.excluded_pending_grid_decision_count and screen.excluded_pending_grid_decision_count > 0 %}, and **{{ screen.excluded_pending_grid_decision_count }}** routed to a senior grid-decision register because their estimated electrical demand exceeds 1.5× the site's declared headroom{% endif %}; see §3).
 
 {% set _hd = headline_dispatch or dispatch %}
-{% if pathway_dispatch %}
+{% set _bal_for_summary = pathway.pathways.balanced if pathway and pathway.pathways and pathway.pathways.balanced else None %}
+{% if _bal_for_summary and _bal_for_summary.year_15_total_carbon_t_co2e is defined %}
+Over the {{ pathway.planning_horizon_years }}-year planning horizon, the **{{ _bal_for_summary.name|default('balanced')|capitalize }}** pathway reduces site Scope 1+2 emissions from **{{ _bal_for_summary.baseline_year_0_carbon_t_co2e|fmt_int }} → {{ _bal_for_summary.year_15_total_carbon_t_co2e|fmt_int }} tCO₂e/yr** (year-{{ pathway.planning_horizon_years }}, **{{ _bal_for_summary.year_15_reduction_pct }}%** reduction). Year-1 ramp-up is more modest — a {{ pathway_dispatch_calendar_year }} dispatch simulation of the same stack achieves Scope 1+2 of **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ _hd.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**, reflecting phased deployment of the HP + EB + TES capacity over the first three years and the contribution of declining grid carbon intensity (NESO FES 2025) over the horizon. Within year 1, the Scope 1 component falls **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ _hd.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** while location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ _hd.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity.
+{% elif pathway_dispatch %}
 A {{ pathway_dispatch_calendar_year }} dispatch simulation of the **{{ pathway_dispatch_pathway_name|capitalize }}** pathway (year-1 of the recommended stack) achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ _hd.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ _hd.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ _hd.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
 {% else %}
 A v0 dispatch simulation of the proposed electrified stack achieves a Scope 1 reduction of **{{ carbon.scope_1.t_co2e_year|fmt_int }} → {{ _hd.carbon_summary.scope_1_t_co2e|fmt_int }} tCO₂e/yr** in year 1 (location-based Scope 2 rises from {{ carbon.scope_2_location_based.t_co2e_year|fmt_int }} to {{ _hd.carbon_summary.scope_2_loc_t_co2e|fmt_int }} tCO₂e/yr as gas demand transfers to grid electricity); the net total moves from **{{ carbon.totals.scope_1_2_loc_t_co2e|fmt_int }} → {{ _hd.carbon_summary.total_t_co2e|fmt_int }} tCO₂e/yr**.
@@ -193,6 +200,30 @@ Method context (every number traces to a deterministic engine call):
 - Stochastic MILP: deferred to v0.2 (current release uses brute-force enumeration).
 
 ### §4.1 Three named pathways
+
+{% set _no_reinf = pathway.pathways_no_reinforcement or {} %}
+{% set _no_reinf_envelope = pathway.no_reinforcement_envelope_kw|default(0)|int %}
+
+#### §4.1a — Pathways without DNO reinforcement
+*(Deliverable in 6–9 months from notice-to-proceed. Constrained to the site's declared no-reinforcement electrical envelope: **{{ _no_reinf_envelope }} kW** = 1.0× site_grid_headroom_mva.)*
+
+{% if _no_reinf.get('infeasible_reason') %}
+> **Infeasible without reinforcement.** {{ _no_reinf.infeasible_reason }} The §4.1b track below presumes DNO reinforcement is obtained; a senior reviewer should commission a G99 connection feasibility study before final investment commitment.
+{% else %}
+| Pathway | Capex | NPV | Year-15 reduction | Simple payback | Discounted payback |
+|---|---:|---:|---:|---:|---:|
+{% for name in ['conservative', 'balanced', 'aggressive'] %}
+{% set pw = _no_reinf.get(name) %}
+{% if pw %}
+| **{{ name|capitalize }}** | £{{ pw.capex_total_gbp|fmt_int }} | £{{ pw.npv_gbp|fmt_int }} | {{ pw.year_15_reduction_pct }}% | {% if pw.simple_payback_years is not none %}{{ pw.simple_payback_years }} yr{% else %}—{% endif %} | {% if pw.discounted_payback_years is not none %}{{ pw.discounted_payback_years }} yr{% else %}—{% endif %} |
+{% endif %}
+{% endfor %}
+
+These pathways respect the §3.3 grid-headroom verdict — total stack electrical demand (HP draw at typical COP + EB nameplate) ≤ 1.0× site headroom, no action carries a `requires_grid_decision` flag. Reduction figures are correspondingly more modest than the §4.1b track because high-temperature HP and electrode-boiler capacity are excluded.
+{% endif %}
+
+#### §4.1b — Pathways with DNO reinforcement
+*(Deliverable in 18–30 months from notice-to-proceed. Capex includes a £50,000–£500,000 DNO reinforcement range as a separate line item where required; the optimiser does not model it explicitly. These pathways carry a `requires_grid_decision` flag where the action stack exceeds the no-reinforcement envelope.)*
 
 {% set rat_ns = namespace(bal_hp_kw=None, bal_hp_id=None, cons_hp_kw=None, cons_hp_id=None, agg_hp_kw=None, agg_hp_id=None) %}
 {% set _bal_pw = pathway.pathways.get('balanced') %}
@@ -472,7 +503,6 @@ The following analyses are **not** performed in this engine release; their absen
 - `compute_safety_constraints` — BS EN 378 charge-limit assessment, ATEX/DSEAR zoning, F-Gas inventory, PED applicability. Deferred per §9.
 - `assess_grid_connection` — G99 application screen, voltage-rise estimate, harmonic injection (G5/5, IEEE 519), DNO reinforcement risk. Deferred per §10.
 - `compute_reliability_availability` — MTBF/MTTR availability, N+1 sizing, expected downtime cost. Deferred per §11.
-- `validate_pathway` — energy balance, carbon conservation, capex-envelope compliance check. Deferred to v0.4.
 
 ---
 
@@ -512,6 +542,22 @@ The following points require chartered-engineer judgement before this analysis i
 
 {% if dispatch.warnings %}
 **Dispatch-flagged.** {{ dispatch.warnings|length }} dispatch warning(s) — review §8.1 before signing the dispatch numbers.
+{% endif %}
+
+---
+
+## §10 Validation Report  ![status](https://img.shields.io/badge/status-IMPLEMENTED%20v0-green)
+
+{% if validate %}
+Cross-module consistency and arithmetic checks run by `decarb.engine.validate.validate_pathway` over the engine bundle. **Overall: {{ 'PASSED' if validate.passed else 'FAILED' }}** — errors {{ validate.summary.errors }}, warnings {{ validate.summary.warnings }}, infos {{ validate.summary.infos }}.
+
+| # | Check | Severity | Result | Message |
+|---:|---|---|---|---|
+{% for c in validate.checks %}
+| {{ loop.index }} | `{{ c.check_id }}` | {{ c.severity }} | {{ 'PASS' if c.passed else 'FAIL' }} | {{ c.message|truncate(200) }} |
+{% endfor %}
+{% else %}
+*Validation report unavailable — `validate_pathway` was not run for this build. Render is normally gated on `validate_pathway.passed=True`; this output is a deliberate-debug build.*
 {% endif %}
 
 ---

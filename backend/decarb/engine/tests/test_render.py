@@ -34,6 +34,7 @@ import pytest
 from decarb.engine.carbon import compute_baseline_carbon
 from decarb.engine.dispatch import simulate_site_dispatch
 from decarb.engine.parse import parse_energy_profile
+from decarb.engine.pathway import optimise_investment_pathway
 from decarb.engine.screen import screen_technologies
 from decarb.engine.tests.test_dispatch import _make_stack
 from decarb.render import render_report
@@ -398,3 +399,234 @@ class TestStructureAllSites:
         assert "Undefined" not in md
         assert "{{" not in md and "}}" not in md
         assert "{%" not in md and "%}" not in md
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 of assessment_2026_05_06_fixes — render-side grid-headroom
+# consistency. The §4.1a / §4.1b split must be present, and any
+# "requires DNO reinforcement" badge must appear only inside §4.1b.
+# ---------------------------------------------------------------------------
+
+
+class TestRenderGridHeadroomConsistency:
+    """End-to-end render with the pathway optimiser wired in. The Balanced
+    selection rule and ETS / IETF overlay match the regenerate-dairy-report
+    script so this test exercises the same render path the GOLDEN reports
+    use."""
+
+    @pytest.fixture
+    def dairy_with_pathway(self, dairy_5mw):
+        parsed = parse_energy_profile(site_brief=dairy_5mw)
+        carbon = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            site_secr_reportable=dairy_5mw.get("regulatory", {}).get("secr_reportable", True),
+            site_in_uk_ets=dairy_5mw.get("regulatory", {}).get("in_uk_ets", False),
+            cca_subsector=dairy_5mw.get("regulatory", {}).get("cca_subsector"),
+            cbam_exposed=dairy_5mw.get("regulatory", {}).get("cbam_exposed", False),
+        )
+        screen = screen_technologies(site_brief=dairy_5mw, energy_profile=parsed)
+        dispatch = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        pathway = optimise_investment_pathway(
+            site_brief=dairy_5mw,
+            energy_profile=parsed,
+            screening=screen,
+            base_year=2026,
+            ets_allowance_price_gbp_per_tco2e=75.0,
+            ietf_grant_fraction=0.30,
+            pathway_selection_rule="max_reduction_positive_npv",
+        )
+        return {
+            "site_brief": dairy_5mw,
+            "parse_result": parsed,
+            "carbon_result": carbon,
+            "screen_result": screen,
+            "dispatch_result": dispatch,
+            "pathway_result": pathway,
+        }
+
+    def test_section_41a_header_present(self, dairy_with_pathway):
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        assert "§4.1a — Pathways without DNO reinforcement" in md, (
+            "§4.1a subheader missing — Phase 3 dual-track render not in place."
+        )
+
+    def test_section_41b_header_present(self, dairy_with_pathway):
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        assert "§4.1b — Pathways with DNO reinforcement" in md, (
+            "§4.1b subheader missing — Phase 3 dual-track render not in place."
+        )
+
+    def test_no_orphan_reinforcement_warnings(self, dairy_with_pathway):
+        """Every '⚠️ requires DNO reinforcement decision' marker in the
+        rendered output must appear AFTER the §4.1b header. Markers
+        elsewhere — in §1, §3.3, §4.1a, the appendices — would be
+        orphaned and contradict §3.3 / §4.1a."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        marker = "⚠️ requires DNO reinforcement decision"
+        b_header = "§4.1b — Pathways with DNO reinforcement"
+        b_idx = md.find(b_header)
+        assert b_idx > 0, "§4.1b header not found — cannot validate marker placement"
+        # Scan for any occurrence of the marker before §4.1b — that's an orphan.
+        prefix = md[:b_idx]
+        assert marker not in prefix, (
+            f"Orphan '{marker}' found before §4.1b header. "
+            "Reinforcement warnings must only appear inside §4.1b."
+        )
+
+    def test_no_reinforcement_envelope_quoted_in_section_41a(self, dairy_with_pathway):
+        """§4.1a must quote the no-reinforcement envelope (kW) so the
+        senior reader knows the constraint envelope explicitly."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        env = int(dairy_with_pathway["pathway_result"]["no_reinforcement_envelope_kw"])
+        # Find §4.1a section
+        a_idx = md.find("§4.1a — Pathways without DNO reinforcement")
+        b_idx = md.find("§4.1b — Pathways with DNO reinforcement")
+        assert 0 < a_idx < b_idx
+        section_a = md[a_idx:b_idx]
+        # Envelope appears as int kW, e.g. "1000 kW" for dairy.
+        assert f"{env} kW" in section_a or f"{env:,} kW" in section_a, (
+            f"Envelope ({env} kW) not quoted in §4.1a. Senior reader "
+            "needs the explicit constraint number to evaluate the track."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 of assessment_2026_05_06_fixes — renderer hygiene
+# D4: §1 leads with year-15 figure when pathway available
+# D5: CCL provenance arithmetic consistency
+# ---------------------------------------------------------------------------
+
+
+import re as _re_phase4
+
+
+class TestRendererHygienePhase4:
+    """D4 and D5 from plan/assessment_2026-05-06.md."""
+
+    @pytest.fixture
+    def dairy_with_pathway(self, dairy_5mw):
+        parsed = parse_energy_profile(site_brief=dairy_5mw)
+        carbon = compute_baseline_carbon(
+            annual_balance_kwh=parsed["annual_balance_kwh"],
+            year=2026,
+            site_secr_reportable=dairy_5mw.get("regulatory", {}).get("secr_reportable", True),
+            site_in_uk_ets=dairy_5mw.get("regulatory", {}).get("in_uk_ets", False),
+            cca_subsector=dairy_5mw.get("regulatory", {}).get("cca_subsector"),
+            cbam_exposed=dairy_5mw.get("regulatory", {}).get("cbam_exposed", False),
+        )
+        screen = screen_technologies(site_brief=dairy_5mw, energy_profile=parsed)
+        dispatch = simulate_site_dispatch(
+            energy_profile=parsed,
+            technology_stack=_make_stack(),
+            dispatch_policy="merit_order",
+            year=2026,
+        )
+        pathway = optimise_investment_pathway(
+            site_brief=dairy_5mw,
+            energy_profile=parsed,
+            screening=screen,
+            base_year=2026,
+            ets_allowance_price_gbp_per_tco2e=75.0,
+            ietf_grant_fraction=0.30,
+            pathway_selection_rule="max_reduction_positive_npv",
+        )
+        return {
+            "site_brief": dairy_5mw,
+            "parse_result": parsed,
+            "carbon_result": carbon,
+            "screen_result": screen,
+            "dispatch_result": dispatch,
+            "pathway_result": pathway,
+        }
+
+    # ----- D4 --------------------------------------------------------------
+
+    def test_section_1_leads_with_year_15_when_pathway_present(self, dairy_with_pathway):
+        """§1 must lead with the year-15 (horizon-end) figure when a
+        pathway result is available, not the year-1 dispatch figure.
+        Specifically: the first carbon-reduction sentence in §1 must
+        mention the planning horizon ("Over the 15-year planning
+        horizon" or similar), not "year-1 of the recommended stack"."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        s1_start = md.find("## §1 Executive Summary")
+        s2_start = md.find("## §2 Site Baseline")
+        assert 0 < s1_start < s2_start
+        s1_body = md[s1_start:s2_start]
+        assert "year-15" in s1_body or "planning horizon" in s1_body, (
+            "§1 must reference the year-15 / planning-horizon figure in "
+            "the headline. Got: " + s1_body[:300]
+        )
+        # The year-15 reduction percentage must appear in §1.
+        bal = dairy_with_pathway["pathway_result"]["pathways"]["balanced"]
+        red_str = f"{bal['year_15_reduction_pct']}%"
+        assert red_str in s1_body, (
+            f"§1 must quote the year-15 reduction {red_str}. "
+            f"Section: {s1_body[:500]}"
+        )
+
+    def test_pathway_record_exposes_year_15_total_carbon(self, dairy_with_pathway):
+        """The optimiser must expose `year_15_total_carbon_t_co2e` and
+        `baseline_year_0_carbon_t_co2e` so the renderer never computes
+        carbon deltas itself."""
+        bal = dairy_with_pathway["pathway_result"]["pathways"]["balanced"]
+        assert "year_15_total_carbon_t_co2e" in bal
+        assert "baseline_year_0_carbon_t_co2e" in bal
+        # Sanity: year-15 ≤ baseline (we expect reduction, not increase)
+        assert bal["year_15_total_carbon_t_co2e"] < bal["baseline_year_0_carbon_t_co2e"]
+
+    # ----- D5 --------------------------------------------------------------
+
+    def test_ccl_provenance_arithmetic_consistent(self, dairy_with_pathway):
+        """Phase 4 / D5: parse the rendered CCL provenance string,
+        extract `rate × volume = product` for each fuel, and assert
+        |rate × volume - product| < £1. Earlier output failed this for
+        the gas line by ~£122 due to display rounding."""
+        md = render_report(**dairy_with_pathway, write_file=False)["markdown"]
+        # Match e.g. "elec 0.06200 p/kWh × 12,500,000 kWh = £7,750"
+        pat = _re_phase4.compile(
+            r"(elec|gas)\s+([\d.,]+)\s+p/kWh\s+×\s+([\d.,]+)\s+kWh\s+=\s+£([\d,]+)"
+        )
+        matches = pat.findall(md)
+        assert len(matches) >= 2, (
+            f"Expected ≥2 CCL provenance rows (elec + gas); found "
+            f"{len(matches)}. Markdown excerpt: "
+            + md[md.find("CCL"): md.find("CCL") + 400]
+        )
+        for fuel, rate_s, vol_s, prod_s in matches:
+            rate = float(rate_s.replace(",", ""))
+            volume = float(vol_s.replace(",", ""))
+            product = float(prod_s.replace(",", ""))
+            # Rate is in p/kWh (pence); product is in £. Convert: £ = p × kWh / 100.
+            computed = rate * volume / 100.0
+            err = abs(computed - product)
+            assert err < 1.0, (
+                f"CCL {fuel} arithmetic inconsistent: "
+                f"{rate} p/kWh × {volume} kWh = computed £{computed:.2f}, "
+                f"displayed £{product}, error £{err:.2f}."
+            )
+
+    def test_ccl_breakdown_structured_fields_exposed(self, dairy_with_pathway):
+        """D5 also requires structured fields on the engine output so
+        the renderer (or other consumers) can compose their own prose
+        without parsing the human-readable string."""
+        ccl = (
+            dairy_with_pathway["carbon_result"]
+            .get("regulatory_exposure", {})
+            .get("ccl")
+        )
+        assert ccl is not None and "ccl_breakdown" in ccl, (
+            "carbon.regulatory_exposure.ccl.ccl_breakdown missing — D5 fix incomplete."
+        )
+        bd = ccl["ccl_breakdown"]
+        for key in (
+            "electricity_rate_p_per_kwh", "electricity_volume_kwh",
+            "electricity_ccl_gbp",
+            "gas_rate_p_per_kwh", "gas_volume_kwh", "gas_ccl_gbp",
+        ):
+            assert key in bd, f"ccl_breakdown.{key} missing"

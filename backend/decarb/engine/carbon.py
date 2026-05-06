@@ -214,19 +214,30 @@ def compute_baseline_carbon(
         ccl_applied_gbp = elec_applied + gas_applied
         elec_p_applied = ccl_main_rates_2026["electricity_p_per_kwh"] * f_elec
         gas_p_applied = ccl_main_rates_2026["natural_gas_p_per_kwh"] * f_gas
-        ccl_method = (
-            f"CCA reduced rates (HMRC 2024+): "
-            f"elec {elec_p_applied:.3f} p/kWh × {elec_kwh/1e6:.1f}M kWh = £{elec_applied:,.0f}; "
-            f"gas {gas_p_applied:.3f} p/kWh × {gas_kwh/1e6:.1f}M kWh = £{gas_applied:,.0f}."
-        )
     else:
         ccl_applied_gbp = ccl_gross_gbp
-        ccl_method = (
-            f"Main CCL rates (no CCA): "
-            f"elec {ccl_main_rates_2026['electricity_p_per_kwh']} p/kWh × "
-            f"{elec_kwh/1e6:.1f}M kWh + gas {ccl_main_rates_2026['natural_gas_p_per_kwh']} p/kWh × "
-            f"{gas_kwh/1e6:.1f}M kWh."
-        )
+        elec_p_applied = ccl_main_rates_2026["electricity_p_per_kwh"]
+        gas_p_applied = ccl_main_rates_2026["natural_gas_p_per_kwh"]
+        elec_applied = elec_main
+        gas_applied = gas_main
+
+    # Phase 4 of assessment_2026_05_06_fixes (D5): the displayed
+    # multiplication must satisfy `displayed_rate × displayed_volume =
+    # displayed_product` to within £1 rounding. Earlier output used 3dp
+    # for the rate and 1dp-millions for the volume — at gas precision
+    # (0.04268 p/kWh, 37,994,376 kWh) those rounded to 0.043 and 38.0M,
+    # whose product (£16,340) didn't match the actual £16,218. Fix:
+    # compose the prose at 5dp rate × full-int kWh so multiplication
+    # passes the test_ccl_provenance_arithmetic_consistent assertion.
+    ccl_method_prefix = (
+        "CCA reduced rates (HMRC 2024+)" if cca_subsector
+        else "Main CCL rates (no CCA)"
+    )
+    ccl_method = (
+        f"{ccl_method_prefix}: "
+        f"elec {elec_p_applied:.5f} p/kWh × {elec_kwh:,.0f} kWh = £{elec_applied:,.0f}; "
+        f"gas {gas_p_applied:.5f} p/kWh × {gas_kwh:,.0f} kWh = £{gas_applied:,.0f}."
+    )
 
     ccl_relief_gbp = ccl_gross_gbp - ccl_applied_gbp
 
@@ -235,6 +246,18 @@ def compute_baseline_carbon(
         "ccl_gross_no_cca_gbp_year": round(ccl_gross_gbp, 0),
         "ccl_relief_value_gbp_year": round(ccl_relief_gbp, 0),
         "ccl_method": ccl_method,
+        # Structured per-fuel breakdown (Phase 4 / D5). The renderer can
+        # compose its own prose from these fields if it wants tighter
+        # control over precision; ccl_method is the canonical
+        # human-readable string.
+        "ccl_breakdown": {
+            "electricity_rate_p_per_kwh": round(elec_p_applied, 5),
+            "electricity_volume_kwh": round(elec_kwh, 0),
+            "electricity_ccl_gbp": round(elec_applied, 0),
+            "gas_rate_p_per_kwh": round(gas_p_applied, 5),
+            "gas_volume_kwh": round(gas_kwh, 0),
+            "gas_ccl_gbp": round(gas_applied, 0),
+        },
         "main_rates_used": ccl_main_rates_2026,
         "cca_reduced_fractions_used": cca_reduced_fractions if cca_subsector else None,
         "cca_applied": cca_subsector is not None,
